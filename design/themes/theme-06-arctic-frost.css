@@ -1,0 +1,84 @@
+/* ============================================================
+   Arctic Frost — ultra-light minimal theme
+   Crisp, clean, icy — pure whites, frost blues, sharp precision
+   ============================================================ */
+
+:root[data-theme="arctic-frost"] {
+  /* ── Colors ──────────────────────────────────────────────── */
+
+  --theme-bg: #ffffff;
+  --theme-bg-secondary: #f8fafc;
+  --theme-bg-tertiary: #f1f5f9;
+
+  --theme-text: #0f172a;
+  --theme-text-secondary: #64748b;
+  --theme-text-tertiary: #6b7280;
+
+  --theme-accent: #7dd3fc;
+  --theme-accent-hover: #bae6fd;
+  --theme-accent-text: #0f172a;
+
+  --theme-border: #e2e8f0;
+  --theme-border-light: #f1f5f9;
+
+  --theme-success: #4ade80;
+  --theme-warning: #fbbf24;
+  --theme-danger: #fb7185;
+  --theme-spend: #0369a1;
+
+  /* ── Typography ─────────────────────────────────────────── */
+
+  --theme-font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+  --theme-font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --theme-font-display: "Inter", "Segoe UI", system-ui, sans-serif;
+
+  --theme-text-base-size: 16px;
+  --theme-text-sm-size: 14px;
+  --theme-text-xs-size: 12px;
+  --theme-text-lg-size: 18px;
+  --theme-text-xl-size: 20px;
+  --theme-text-2xl-size: 24px;
+
+  --theme-font-weight-normal: 400;
+  --theme-font-weight-bold: 600;
+
+  --theme-letter-spacing: 0;
+  --theme-letter-spacing-wide: 0.06em;
+
+  --theme-line-height: 1.5;
+
+  /* ── Spacing & Borders ──────────────────────────────────── */
+
+  --theme-radius-sm: 0.125rem;
+  --theme-radius-md: 0.25rem;
+  --theme-radius-lg: 0.5rem;
+
+  --theme-border-width: 1px;
+  --theme-border-width-thick: 2px;
+
+  --theme-spacing-unit: 0.25rem;
+  --theme-card-padding: 1rem;
+  --theme-section-gap: 0.75rem;
+
+  /* ── Shadows & Elevation ────────────────────────────────── */
+
+  --theme-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --theme-shadow-md: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --theme-shadow-lg: 0 4px 6px rgba(15, 23, 42, 0.05), 0 2px 4px rgba(15, 23, 42, 0.04);
+  --theme-shadow-glow: 0 0 0 3px rgba(125, 211, 252, 0.25);
+  --theme-shadow-glow-color: rgba(125, 211, 252, 0.5);
+
+  /* ── Effects ────────────────────────────────────────────── */
+
+  --theme-transition-speed: 200ms;
+  --theme-transition-easing: ease-out;
+
+  --theme-card-bg-opacity: 0.9;
+  --theme-card-blur: 4px;
+
+  --theme-overlay-pattern: none;
+  --theme-overlay-opacity: 0;
+
+  --theme-header-weight: 600;
+  --theme-label-transform: uppercase;
+}

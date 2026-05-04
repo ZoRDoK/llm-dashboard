@@ -1,0 +1,81 @@
+/* ============================================================
+   Zen Garden — Minimalist Light Theme
+   Japanese minimalism: empty space, warm grays, single indigo accent
+   ============================================================ */
+
+:root[data-theme="zen-garden"] {
+  /* ── Colors ─────────────────────────────────────────────── */
+  --theme-bg: #f5f5f4;
+  --theme-bg-secondary: #ffffff;
+  --theme-bg-tertiary: #fafaf9;
+
+  --theme-text: #44403c;
+  --theme-text-secondary: #57534e;
+  --theme-text-tertiary: #78716c;
+
+  --theme-accent: #4338ca;
+  --theme-accent-hover: #6366f1;
+  --theme-accent-text: #ffffff;
+
+  --theme-border: #e7e5e4;
+  --theme-border-light: #f5f5f4;
+
+  --theme-success: #14b8a6;
+  --theme-warning: #d97706;
+  --theme-danger: #e11d48;
+  --theme-spend: #57534e;
+
+  /* ── Typography ────────────────────────────────────────── */
+  --theme-font-sans: "Inter", "Noto Sans", system-ui, -apple-system, sans-serif;
+  --theme-font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --theme-font-display: "Inter", "Noto Sans", system-ui, sans-serif;
+
+  --theme-text-base-size: 16px;
+  --theme-text-sm-size: 14px;
+  --theme-text-xs-size: 12px;
+  --theme-text-lg-size: 20px;
+  --theme-text-xl-size: 24px;
+  --theme-text-2xl-size: 32px;
+
+  --theme-font-weight-normal: 400;
+  --theme-font-weight-bold: 600;
+  --theme-header-weight: 300; /* airy, spacious headings */
+
+  --theme-letter-spacing: 0;
+  --theme-letter-spacing-wide: 0.06em;
+  --theme-label-transform: uppercase;
+
+  --theme-line-height: 1.6;
+
+  /* ── Spacing & Borders ─────────────────────────────────── */
+  --theme-radius-sm: 0.375rem;
+  --theme-radius-md: 0.5rem;
+  --theme-radius-lg: 0.75rem;
+
+  --theme-border-width: 1px;
+  --theme-border-width-thick: 2px;
+
+  --theme-spacing-unit: 0.25rem;
+  --theme-card-padding: 2rem;
+  --theme-section-gap: 2rem;
+
+  /* ── Shadows & Elevation ────────────────────────────────── */
+  /* Barely-there, wide, soft — shadow-only card separation, no borders */
+  --theme-shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.04);
+  --theme-shadow-md: 0 2px 16px rgba(0, 0, 0, 0.03);
+  --theme-shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.05);
+  --theme-shadow-glow: 0 0 20px rgba(67, 56, 202, 0.12);
+  --theme-shadow-glow-color: rgba(67, 56, 202, 0.5);
+
+  /* ── Effects & Motion ──────────────────────────────────── */
+  /* Slow, meditative transitions */
+  --theme-transition-speed: 500ms;
+  --theme-transition-easing: ease-out;
+
+  --theme-card-bg-opacity: 1;
+  --theme-card-blur: 0;
+
+  /* Subtle noise texture on background */
+  --theme-overlay-pattern: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.025'/%3E%3C/svg%3E");
+  --theme-overlay-opacity: 1;
+}

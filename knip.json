@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "project": ["src/**/*.ts"],
+  "ignoreDependencies": ["@cspell/dict-ru_ru"],
+  "ignoreBinaries": ["gitleaks"],
+  "rules": {
+    "files": "error",
+    "dependencies": "error",
+    "devDependencies": "warn",
+    "unlisted": "error",
+    "exports": "error",
+    "types": "error",
+    "duplicates": "error"
+  }
+}

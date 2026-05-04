@@ -1,0 +1,72 @@
+/**
+ * Theme: Sunset Boulevard
+ * Warm California sunset — golden hour oranges, soft pinks, peach tones.
+ * Editorial mix: Georgia serif headings, system sans body.
+ */
+
+:root[data-theme="sunset-boulevard"] {
+  /* ── Colors ─────────────────────────────────────────── */
+
+  --theme-bg: #fff7ed;
+  --theme-bg-secondary: #fffbf5;
+  --theme-bg-tertiary: #fff0e0;
+  --theme-text: #431407;
+  --theme-text-secondary: #9a3412;
+  --theme-text-tertiary: #c05621;
+  --theme-accent: #ea580c;
+  --theme-accent-hover: #f97316;
+  --theme-accent-text: #ffffff;
+  --theme-border: #fed7aa;
+  --theme-border-light: #fde7c4;
+  --theme-success: #65a30d;
+  --theme-warning: #d97706;
+  --theme-danger: #dc2626;
+  --theme-spend: #ea580c;
+
+  /* ── Typography ─────────────────────────────────────── */
+
+  --theme-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --theme-font-mono: "Cascadia Code", "Fira Code", "JetBrains Mono", ui-monospace, monospace;
+  --theme-font-display: Georgia, "Times New Roman", "Book Antiqua", Palatino, serif;
+  --theme-text-base-size: 16px;
+  --theme-text-sm-size: 14px;
+  --theme-text-xs-size: 12px;
+  --theme-text-lg-size: 18px;
+  --theme-text-xl-size: 22px;
+  --theme-text-2xl-size: 28px;
+  --theme-font-weight-normal: 400;
+  --theme-font-weight-bold: 700;
+  --theme-letter-spacing: 0;
+  --theme-letter-spacing-wide: 0.06em;
+  --theme-line-height: 1.6;
+  --theme-header-weight: 700;
+  --theme-label-transform: uppercase;
+
+  /* ── Spacing & Borders ──────────────────────────────── */
+
+  --theme-radius-sm: 0.5rem;
+  --theme-radius-md: 1rem;
+  --theme-radius-lg: 1.25rem;
+  --theme-border-width: 1px;
+  --theme-border-width-thick: 2px;
+  --theme-spacing-unit: 0.25rem;
+  --theme-card-padding: 1.5rem;
+  --theme-section-gap: 1.25rem;
+
+  /* ── Shadows & Elevation ────────────────────────────── */
+
+  --theme-shadow-sm: 0 1px 4px rgba(234, 88, 12, 0.06);
+  --theme-shadow-md: 0 4px 16px rgba(234, 88, 12, 0.1);
+  --theme-shadow-lg: 0 8px 32px rgba(234, 88, 12, 0.16);
+  --theme-shadow-glow: 0 4px 24px rgba(234, 88, 12, 0.18);
+  --theme-shadow-glow-color: rgba(234, 88, 12, 0.55);
+
+  /* ── Effects ────────────────────────────────────────── */
+
+  --theme-transition-speed: 350ms;
+  --theme-transition-easing: ease-out;
+  --theme-card-bg-opacity: 1;
+  --theme-card-blur: 0px;
+  --theme-overlay-pattern: none;
+  --theme-overlay-opacity: 0;
+}

@@ -1,0 +1,82 @@
+/* ============================================================
+   Theme: Neon Nights — ultra-dark tech theme
+   Description: Pure black base, vibrant neon cyan/magenta, glow effects everywhere.
+   ============================================================ */
+
+:root[data-theme="neon-nights"] {
+  /* ── Colors ──────────────────────────────────────────────── */
+
+  --theme-bg: #000000;
+  --theme-bg-secondary: #0a0a0a;
+  --theme-bg-tertiary: #151515;
+
+  --theme-text: #f0f0f0;
+  --theme-text-secondary: rgba(6, 182, 212, 0.7);
+  --theme-text-tertiary: rgba(6, 182, 212, 0.45);
+
+  --theme-accent: #06b6d4;
+  --theme-accent-hover: #22d3ee;
+  --theme-accent-text: #000000;
+
+  --theme-border: rgba(6, 182, 212, 0.4);
+  --theme-border-light: rgba(6, 182, 212, 0.15);
+
+  --theme-success: #39ff14;
+  --theme-warning: #ffff00;
+  --theme-danger: #ff0040;
+  --theme-spend: #06b6d4;
+
+  /* ── Typography ──────────────────────────────────────────── */
+
+  --theme-font-sans: "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+  --theme-font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+  --theme-font-display: "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+
+  --theme-text-base-size: 16px;
+  --theme-text-sm-size: 0.875rem;
+  --theme-text-xs-size: 0.75rem;
+  --theme-text-lg-size: 1.125rem;
+  --theme-text-xl-size: 1.25rem;
+  --theme-text-2xl-size: 1.5rem;
+
+  --theme-font-weight-normal: 400;
+  --theme-font-weight-bold: 700;
+  --theme-header-weight: 700;
+
+  --theme-letter-spacing: 0em;
+  --theme-letter-spacing-wide: 0.05em;
+
+  --theme-line-height: 1.6;
+  --theme-label-transform: uppercase;
+
+  /* ── Spacing & Borders ───────────────────────────────────── */
+
+  --theme-radius-sm: 0.25rem;
+  --theme-radius-md: 0.25rem;
+  --theme-radius-lg: 0.375rem;
+
+  --theme-border-width: 1px;
+  --theme-border-width-thick: 2px;
+
+  --theme-spacing-unit: 0.25rem;
+  --theme-card-padding: 1rem;
+  --theme-section-gap: 0.75rem;
+
+  /* ── Shadows & Elevation ──────────────────────────────────── */
+
+  --theme-shadow-sm: 0 0 6px rgba(6, 182, 212, 0.15);
+  --theme-shadow-md: 0 0 10px rgba(6, 182, 212, 0.25), 0 0 24px rgba(6, 182, 212, 0.1);
+  --theme-shadow-lg: 0 0 16px rgba(6, 182, 212, 0.4), 0 0 40px rgba(6, 182, 212, 0.2);
+
+  --theme-shadow-glow: 0 0 10px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3);
+  --theme-shadow-glow-color: #06b6d4;
+
+  /* ── Effects ─────────────────────────────────────────────── */
+
+  --theme-transition-speed: 150ms;
+  --theme-transition-easing: ease-out;
+  --theme-card-bg-opacity: 1;
+  --theme-card-blur: 0px;
+  --theme-overlay-pattern: none;
+  --theme-overlay-opacity: 0;
+}

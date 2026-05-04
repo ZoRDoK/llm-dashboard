@@ -1,0 +1,113 @@
+/* ============================================================
+   Theme: Retro Wave — Dark Synthwave / 80s Neon
+   Description: Deep synthwave purple base, hot pink and electric
+   cyan accents, perspective grid, scanlines, and chrome effects.
+   ============================================================ */
+
+:root[data-theme="retro-wave"] {
+  /* ── Colors ──────────────────────────────────────────────── */
+
+  --theme-bg: #1a0033;
+  --theme-bg-secondary: #220044;
+  --theme-bg-tertiary: #3d0066;
+
+  --theme-text: #ffffff;
+  --theme-text-secondary: rgba(255, 0, 127, 0.7);
+  --theme-text-tertiary: rgba(255, 0, 127, 0.45);
+
+  --theme-accent: #ff007f;
+  --theme-accent-hover: #ff3399;
+  --theme-accent-text: #ffffff;
+
+  --theme-border: #ff007f;
+  --theme-border-light: rgba(255, 0, 127, 0.25);
+
+  --theme-success: #00f0ff;
+  --theme-warning: #ff007f;
+  --theme-danger: #ff0040;
+  --theme-spend: #00f0ff;
+
+  /* ── Typography ──────────────────────────────────────────── */
+
+  --theme-font-sans: "Outrun", "Orbitron", "Exo 2", system-ui, sans-serif;
+  --theme-font-mono: "Share Tech Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --theme-font-display: "Outrun", "Orbitron", "Exo 2", system-ui, sans-serif;
+
+  --theme-text-base-size: 16px;
+  --theme-text-sm-size: 0.875rem;
+  --theme-text-xs-size: 0.75rem;
+  --theme-text-lg-size: 1.25rem;
+  --theme-text-xl-size: 1.5rem;
+  --theme-text-2xl-size: 2rem;
+
+  --theme-font-weight-normal: 400;
+  --theme-font-weight-bold: 800;
+  --theme-header-weight: 800;
+
+  --theme-letter-spacing: 0.02em;
+  --theme-letter-spacing-wide: 0.15em;
+
+  --theme-line-height: 1.5;
+  --theme-label-transform: uppercase;
+
+  /* ── Spacing & Borders ───────────────────────────────────── */
+
+  --theme-radius-sm: 0.5rem;
+  --theme-radius-md: 0.75rem;
+  --theme-radius-lg: 1rem;
+
+  --theme-border-width: 1px;
+  --theme-border-width-thick: 2px;
+
+  --theme-spacing-unit: 0.25rem;
+  --theme-card-padding: 1.25rem;
+  --theme-section-gap: 1rem;
+
+  /* ── Shadows & Elevation ──────────────────────────────────── */
+
+  --theme-shadow-sm: 0 0 10px rgba(255, 0, 127, 0.2), 0 0 20px rgba(0, 240, 255, 0.08);
+  --theme-shadow-md: 0 0 20px rgba(255, 0, 127, 0.35), 0 0 40px rgba(255, 0, 127, 0.15);
+  --theme-shadow-lg: 0 0 30px rgba(255, 0, 127, 0.5), 0 0 60px rgba(0, 240, 255, 0.2);
+
+  --theme-shadow-glow: 0 0 12px rgba(255, 0, 127, 0.8), 0 0 24px rgba(255, 0, 127, 0.4);
+  --theme-shadow-glow-color: #ff007f;
+
+  /* ── Effects ─────────────────────────────────────────────── */
+
+  --theme-transition-speed: 300ms;
+  --theme-transition-easing: ease-out;
+  --theme-card-bg-opacity: 1;
+  --theme-card-blur: 0px;
+  --theme-overlay-pattern: /* perspective grid floor */
+      linear-gradient(
+        to bottom,
+        transparent 0%,
+        rgba(255, 0, 127, 0.03) 50%,
+        rgba(0, 240, 255, 0.05) 100%
+      ),
+      /* horizontal scanlines */
+      repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 3px,
+        rgba(0, 0, 0, 0.1) 3px,
+        rgba(0, 0, 0, 0.1) 4px
+      ),
+      /* cyan vertical grid lines */
+      repeating-linear-gradient(
+        90deg,
+        transparent,
+        transparent 79px,
+        rgba(0, 240, 255, 0.06) 79px,
+        rgba(0, 240, 255, 0.06) 80px
+      ),
+      /* pink horizontal grid lines */
+      repeating-linear-gradient(
+        180deg,
+        transparent,
+        transparent 39px,
+        rgba(255, 0, 127, 0.05) 39px,
+        rgba(255, 0, 127, 0.05) 40px
+      );
+  --theme-overlay-opacity: 1;
+}

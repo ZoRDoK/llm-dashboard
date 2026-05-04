@@ -1,0 +1,85 @@
+/* ============================================================
+   Theme: Paper & Ink — light classic / editorial print style
+   ============================================================ */
+
+:root[data-theme="paper-ink"] {
+  /* ── Colors ──────────────────────────────────────────────── */
+
+  --theme-bg: #faf5eb;
+  --theme-bg-secondary: #fefcf7;
+  --theme-bg-tertiary: #f5ede0;
+
+  --theme-text: #1a1a2e;
+  --theme-text-secondary: #4a3728;
+  --theme-text-tertiary: #6b5344;
+
+  --theme-accent: #7c2d12;
+  --theme-accent-hover: #991b1b;
+  --theme-accent-text: #fefcf7;
+
+  --theme-border: #3d2e1e;
+  --theme-border-light: #c9b99a;
+
+  --theme-success: #0d9488;
+  --theme-warning: #b45309;
+  --theme-danger: #b91c1c;
+  --theme-spend: #7c2d12;
+
+  /* ── Typography ─────────────────────────────────────────── */
+
+  /* Merriweather for body/headings; Georgia as fallback */
+  --theme-font-sans: "Merriweather", Georgia, "Times New Roman", serif;
+  --theme-font-mono: "Courier New", "Courier", monospace;
+  --theme-font-display: "Merriweather", Georgia, "Times New Roman", serif;
+
+  --theme-text-base-size: 16px;
+  --theme-text-sm-size: 0.875rem;
+  --theme-text-xs-size: 0.75rem;
+  --theme-text-lg-size: 1.125rem;
+  --theme-text-xl-size: 1.25rem;
+  --theme-text-2xl-size: 1.5rem;
+
+  --theme-font-weight-normal: 400;
+  --theme-font-weight-bold: 700;
+
+  --theme-letter-spacing: 0;
+  --theme-letter-spacing-wide: 0.05em;
+  --theme-line-height: 1.75;
+
+  /* ── Spacing & Borders ───────────────────────────────────── */
+
+  --theme-radius-sm: 0.125rem; /* sharp, formal */
+  --theme-radius-md: 0.125rem;
+  --theme-radius-lg: 0.1875rem;
+
+  --theme-border-width: 1px;
+  --theme-border-width-thick: 2px;
+
+  --theme-spacing-unit: 0.25rem;
+  --theme-card-padding: 1.5rem;
+  --theme-section-gap: 1.5rem;
+
+  /* ── Shadows & Elevation ─────────────────────────────────── */
+
+  /* Flat editorial — near-zero shadows */
+  --theme-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --theme-shadow-md: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --theme-shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.06);
+  --theme-shadow-glow: none;
+  --theme-shadow-glow-color: transparent;
+
+  /* ── Effects & Motion ────────────────────────────────────── */
+
+  --theme-transition-speed: 250ms;
+  --theme-transition-easing: ease-out;
+
+  /* Paper texture: warm noise grain via inline SVG data URI */
+  --theme-overlay-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+  --theme-overlay-opacity: 1;
+
+  --theme-card-bg-opacity: 1;
+  --theme-card-blur: 0;
+
+  --theme-header-weight: 700;
+  --theme-label-transform: uppercase;
+}

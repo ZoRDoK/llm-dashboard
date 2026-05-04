@@ -1,0 +1,52 @@
+# Lefthook — fast git hooks manager
+# https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  commands:
+    # Fast format & lint
+    biome:
+      glob: "*.{js,ts,json,md}"
+      run: npx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+      skip:
+        - merge
+        - rebase
+
+    # Secret detection — only on staged files (fast)
+    gitleaks-detect:
+      glob: "*"
+      run: gitleaks detect --source=. --no-git --verbose --log-level=warn 2>&1
+      skip:
+        - merge
+        - rebase
+
+    # Spellcheck
+    cspell:
+      glob: "*.{ts,js,md,txt}"
+      run: npx cspell lint --no-must-find-files --gitignore {staged_files}
+      skip:
+        - merge
+        - rebase
+
+commit-msg:
+  commands:
+    commitlint:
+      run: npx commitlint --edit {1}
+
+pre-push:
+  parallel: true
+  commands:
+    # Full knip check (checks unused files/deps)
+    knip:
+      run: npx knip
+      skip:
+        - merge
+        - rebase
+
+    # Full secret scan on git history
+    gitleaks-full:
+      run: gitleaks detect --source=. --verbose --log-level=warn
+      skip:
+        - merge
+        - rebase

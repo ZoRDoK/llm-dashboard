@@ -1,0 +1,71 @@
+/* ============================================================
+   Theme: Cyberpunk 2077 — Brutalist Dark / Glitch Aesthetic
+   ============================================================ */
+
+:root[data-theme="cyberpunk"] {
+  /* ── Colors ── */
+  --theme-bg: #0a0a0a;
+  --theme-bg-secondary: #111111;
+  --theme-bg-tertiary: #222222;
+  --theme-text: #ffffff;
+  --theme-text-secondary: rgba(252, 238, 10, 0.6);
+  --theme-text-tertiary: rgba(252, 238, 10, 0.4);
+  --theme-accent: #fcee0a;
+  --theme-accent-hover: #fef08a;
+  --theme-accent-text: #0a0a0a;
+  --theme-border: #fcee0a;
+  --theme-border-light: rgba(252, 238, 10, 0.25);
+  --theme-success: #00ffff;
+  --theme-warning: #fcee0a;
+  --theme-danger: #ff00ff;
+  --theme-spend: #ff00ff;
+
+  /* ── Typography ── */
+  --theme-font-sans: "Share Tech Mono", monospace;
+  --theme-font-mono: "Share Tech Mono", monospace;
+  --theme-font-display: "Share Tech Mono", monospace;
+  --theme-text-base-size: 16px;
+  --theme-text-sm-size: 13px;
+  --theme-text-xs-size: 11px;
+  --theme-text-lg-size: 20px;
+  --theme-text-xl-size: 24px;
+  --theme-text-2xl-size: 32px;
+  --theme-font-weight-normal: 400;
+  --theme-font-weight-bold: 700;
+  --theme-letter-spacing: 0.02em;
+  --theme-letter-spacing-wide: 0.12em;
+  --theme-line-height: 1.4;
+
+  /* ── Spacing & Borders ── */
+  --theme-radius-sm: 0px;
+  --theme-radius-md: 0px;
+  --theme-radius-lg: 0px;
+  --theme-border-width: 2px;
+  --theme-border-width-thick: 4px;
+  --theme-spacing-unit: 0.25rem;
+  --theme-card-padding: 1rem;
+  --theme-section-gap: 0.5rem;
+
+  /* ── Shadows & Elevation ── */
+  --theme-shadow-sm: 0 0 8px rgba(252, 238, 10, 0.15);
+  --theme-shadow-md: 0 0 20px rgba(252, 238, 10, 0.25), 0 0 60px rgba(252, 238, 10, 0.08);
+  --theme-shadow-lg: 0 0 30px rgba(252, 238, 10, 0.35), 0 0 80px rgba(252, 238, 10, 0.12);
+  --theme-shadow-glow: 0 0 12px rgba(252, 238, 10, 0.6), 0 0 24px rgba(252, 238, 10, 0.3);
+  --theme-shadow-glow-color: #fcee0a;
+
+  /* ── Effects ── */
+  --theme-transition-speed: 100ms;
+  --theme-transition-easing: steps(2, end);
+  --theme-card-bg-opacity: 1;
+  --theme-card-blur: 0px;
+  --theme-overlay-pattern: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.15) 2px,
+    rgba(0, 0, 0, 0.15) 4px
+  );
+  --theme-overlay-opacity: 1;
+  --theme-header-weight: 700;
+  --theme-label-transform: uppercase;
+}

@@ -1,0 +1,29 @@
+title = "ai-creds gitleaks config"
+
+# Allowlist: skip false positives in node_modules and other non-sensitive paths
+[allowlist]
+  description = "Global allowlist"
+  paths = [
+    '''\.env\.example$''',
+    '''\.gitleaks\.toml$''',
+    '''node_modules/''',
+    '''\.git/''',
+  ]
+
+[[rules]]
+  id = "generic-api-key"
+  description = "Generic API Key"
+  regex = '''(?i)(?:key|api|token|secret|password|auth)[\s:=]+['\"][0-9a-zA-Z\-_]{20,}['\"]'''
+  tags = ["key", "api"]
+
+[[rules]]
+  id = "generic-api-key-var"
+  description = "Generic API Key in variable"
+  regex = '''(?i)(?:key|api|token|secret|password|auth)['\"]?\s*(?::|=>|=)\s*['\"][0-9a-zA-Z\-_]{20,}['\"]'''
+  tags = ["key", "api"]
+
+[[rules]]
+  id = "private-key"
+  description = "Private key exposure"
+  regex = '''-----BEGIN [A-Z]+ PRIVATE KEY-----'''
+  tags = ["key", "crypto"]

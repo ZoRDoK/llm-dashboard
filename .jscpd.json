@@ -1,0 +1,9 @@
+{
+  "threshold": 5,
+  "reporters": ["consoleFull"],
+  "ignore": ["node_modules/**", "dist/**", "data/**", "*.lock", "*.json", "*.yaml", "*.toml"],
+  "absolute": false,
+  "minLines": 5,
+  "minTokens": 50,
+  "output": "./reports/jscpd"
+}

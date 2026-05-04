@@ -1,0 +1,114 @@
+/* ==========================================================================
+   Forest Canopy Theme — AI Creds Dashboard
+   Lush natural forest: deep greens, emerald, wood tones, organic rounded shapes.
+   ========================================================================== */
+
+:root[data-theme="forest-canopy"] {
+  /* --------------------------------------------------------------------------
+     Colors — Backgrounds
+     -------------------------------------------------------------------------- */
+  --theme-bg: #064e3b; /* deep forest */
+  --theme-bg-secondary: #065f46; /* card surfaces */
+  --theme-bg-tertiary: #047857; /* nested surfaces, hover states */
+
+  /* --------------------------------------------------------------------------
+     Colors — Text
+     -------------------------------------------------------------------------- */
+  --theme-text: #d1fae5; /* soft mint — primary text */
+  --theme-text-secondary: #6ee7b7; /* muted mint — secondary text */
+  --theme-text-tertiary: #34d399; /* very muted — timestamps, meta */
+
+  /* --------------------------------------------------------------------------
+     Colors — Accent
+     -------------------------------------------------------------------------- */
+  --theme-accent: #10b981; /* emerald — primary accent */
+  --theme-accent-hover: #34d399; /* lighter emerald — hover state */
+  --theme-accent-text: #022c22; /* deep forest — text on accent bg */
+
+  /* --------------------------------------------------------------------------
+     Colors — Borders
+     -------------------------------------------------------------------------- */
+  --theme-border: #92400e; /* wood-tone — default borders */
+  --theme-border-light: #065f46; /* subtle forest — light borders */
+
+  /* --------------------------------------------------------------------------
+     Colors — Semantic
+     -------------------------------------------------------------------------- */
+  --theme-success: #10b981; /* emerald */
+  --theme-warning: #f59e0b; /* amber-yellow */
+  --theme-danger: #f43f5e; /* rose */
+  --theme-spend: #6ee7b7; /* muted mint */
+
+  /* --------------------------------------------------------------------------
+     Typography — Fonts
+     -------------------------------------------------------------------------- */
+  --theme-font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --theme-font-mono:
+    "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", Menlo, Monaco, Consolas, monospace;
+  --theme-font-display:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* --------------------------------------------------------------------------
+     Typography — Sizes
+     -------------------------------------------------------------------------- */
+  --theme-text-base-size: 17px; /* comfortable reading */
+  --theme-text-sm-size: 0.875rem; /* 14.875px */
+  --theme-text-xs-size: 0.75rem; /* 12.75px */
+  --theme-text-lg-size: 1.125rem; /* 19.125px */
+  --theme-text-xl-size: 1.25rem; /* 21.25px */
+  --theme-text-2xl-size: 1.5rem; /* 25.5px */
+
+  /* --------------------------------------------------------------------------
+     Typography — Weights & Tracking
+     -------------------------------------------------------------------------- */
+  --theme-font-weight-normal: 400;
+  --theme-font-weight-bold: 600;
+  --theme-letter-spacing: 0;
+  --theme-letter-spacing-wide: 0.025em;
+  --theme-line-height: 1.6;
+
+  /* --------------------------------------------------------------------------
+     Spacing & Borders — Radius
+     -------------------------------------------------------------------------- */
+  --theme-radius-sm: 0.75rem; /* buttons, inputs — organic feel */
+  --theme-radius-md: 1.25rem; /* cards — very rounded */
+  --theme-radius-lg: 1.5rem; /* large containers */
+
+  /* --------------------------------------------------------------------------
+     Spacing & Borders — Width
+     -------------------------------------------------------------------------- */
+  --theme-border-width: 1px;
+  --theme-border-width-thick: 2px; /* wood-tone card borders */
+
+  /* --------------------------------------------------------------------------
+     Spacing & Borders — Units
+     -------------------------------------------------------------------------- */
+  --theme-spacing-unit: 0.25rem;
+  --theme-card-padding: 1.5rem;
+  --theme-section-gap: 1.25rem;
+
+  /* --------------------------------------------------------------------------
+     Shadows & Elevation
+     -------------------------------------------------------------------------- */
+  --theme-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --theme-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3); /* soft natural */
+  --theme-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --theme-shadow-glow: 0 0 20px rgba(16, 185, 129, 0.25); /* emerald glow */
+  --theme-shadow-glow-color: #10b981;
+
+  /* --------------------------------------------------------------------------
+     Effects
+     -------------------------------------------------------------------------- */
+  --theme-transition-speed: 400ms;
+  --theme-transition-easing: ease-out;
+  --theme-card-bg-opacity: 1;
+  --theme-card-blur: 0;
+  --theme-overlay-pattern: none;
+  --theme-overlay-opacity: 0;
+
+  /* --------------------------------------------------------------------------
+     Labels & Headings
+     -------------------------------------------------------------------------- */
+  --theme-header-weight: 600;
+  --theme-label-transform: none;
+}

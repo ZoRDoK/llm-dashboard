@@ -90,10 +90,10 @@ export class Context7 implements ProviderAdapter {
 
     const windows: UsageWindow[] = [];
 
-    // Monthly quota: quotaLimit is the cap, creditBalance is remaining
+    // Monthly quota: quotaLimit is the cap, creditBalance is credits consumed
     if (stats.quotaLimit != null && stats.quotaLimit > 0) {
-      const used = stats.quotaLimit - stats.creditBalance;
-      windows.push(UsageWindow.fromCounts('monthly', Math.max(0, used), stats.quotaLimit, null));
+      const used = Math.max(0, Math.min(stats.creditBalance, stats.quotaLimit));
+      windows.push(UsageWindow.fromCounts('monthly', used, stats.quotaLimit, null));
     }
 
     // Current month aggregate

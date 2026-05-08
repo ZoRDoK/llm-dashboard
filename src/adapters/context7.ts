@@ -1,3 +1,4 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { config } from '../config';
 import { ModelUsage } from '../model-usage';
 import { Provider } from '../provider';
@@ -5,14 +6,42 @@ import type { ProviderAdapter } from '../types';
 import { UsageWindow } from '../usage-window';
 
 const FETCH_TIMEOUT_MS = 5_000;
+const KEEPALIVE_INTERVAL_MS = 180_000; // 3 minutes
+const HTTP_UNAUTHORIZED = 401;
+const COOKIE_FILE = 'data/context7-cookies.txt';
 const TEAMSPACES_API = 'https://context7.com/api/dashboard/teamspaces';
 const STATS_API = 'https://context7.com/api/dashboard/stats';
 
 const USER_AGENT =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36';
 
-// In-memory cookie store — starts from config, refreshed via Set-Cookie
+// Cookie state — persisted to disk so it survives server restarts
 let storedCookies: string | null = null;
+let keepaliveTimer: ReturnType<typeof setTimeout> | null = null;
+
+/* ── Cookie helpers ────────────────────────────────────── */
+
+function loadCookies(): string | null {
+  // Prefer persisted file over .env config
+  if (existsSync(COOKIE_FILE)) {
+    return readFileSync(COOKIE_FILE, 'utf-8').trim() || null;
+  }
+
+  return config.context7SessionCookie || null;
+}
+
+function saveCookies(cookies: string): void {
+  try {
+    const dir = COOKIE_FILE.slice(0, COOKIE_FILE.lastIndexOf('/'));
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+
+    writeFileSync(COOKIE_FILE, cookies, 'utf-8');
+  } catch (err) {
+    console.error('Failed to persist cookies:', err);
+  }
+}
 
 /** Parse a Set-Cookie header value into name=value pair, dropping attributes. */
 function parseSetCookieValue(setCookie: string): string {
@@ -43,6 +72,8 @@ function mergeSetCookies(base: string, setCookies: string[]): string {
   return parts.join('; ');
 }
 
+/* ── Types ─────────────────────────────────────────────── */
+
 interface Teamspace {
   id: string;
   name: string;
@@ -69,18 +100,72 @@ interface DailyStat {
   member_count: number;
 }
 
+/* ── Keepalive ─────────────────────────────────────────── */
+
+/**
+ * Periodically fetch a lightweight endpoint to keep the Clerk session alive.
+ * Each response sends Set-Cookie headers that refresh session cookies.
+ */
+async function keepalive(): Promise<void> {
+  if (!storedCookies) {
+    return;
+  }
+
+  try {
+    const response = await fetch(TEAMSPACES_API, {
+      headers: {
+        cookie: storedCookies,
+        'user-agent': USER_AGENT,
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+
+    mergeResponseCookies(response);
+
+    if (response.status === HTTP_UNAUTHORIZED) {
+      console.warn('Context7 session expired, showing stale cached data');
+    }
+  } catch (err) {
+    // Network errors are expected during dev — don't spam logs
+    if (err instanceof Error && err.name !== 'AbortError') {
+      console.error('Context7 keepalive failed:', err.message);
+    }
+  }
+}
+
+function mergeResponseCookies(response: Response): void {
+  const setCookies =
+    'getSetCookie' in response.headers
+      ? (response.headers as unknown as { getSetCookie(): string[] }).getSetCookie()
+      : [response.headers.get('set-cookie') ?? ''];
+
+  const valid = setCookies.filter(Boolean);
+
+  if (valid.length > 0) {
+    storedCookies = mergeSetCookies(storedCookies ?? '', valid);
+    saveCookies(storedCookies);
+  }
+}
+
+/* ── Adapter ───────────────────────────────────────────── */
+
 export class Context7 implements ProviderAdapter {
   id = 'context7';
   name = 'Context7';
 
   async fetchUsage(): Promise<Provider> {
-    // Initialize stored cookies from config on first call
+    // Lazy-init: load from file / .env on first call
     if (!storedCookies) {
-      storedCookies = config.context7SessionCookie;
+      storedCookies = loadCookies();
     }
 
     if (!storedCookies) {
       return new Provider(this.id, this.name, 'Not configured', []);
+    }
+
+    // Start background keepalive on first usage
+    if (!keepaliveTimer) {
+      this.startKeepalive();
     }
 
     const teamspaceId = await this.fetchDefaultTeamspace(storedCookies);
@@ -126,6 +211,32 @@ export class Context7 implements ProviderAdapter {
     return new Provider(this.id, this.name, plan, [ModelUsage.from('Context7', windows)]);
   }
 
+  /** Start background keepalive timer. Idempotent. */
+  startKeepalive(): void {
+    if (keepaliveTimer) {
+      return;
+    }
+
+    keepaliveTimer = setTimeout(() => {
+      keepaliveTimer = null;
+      keepalive()
+        .catch(() => {
+          /* logged inside keepalive */
+        })
+        .finally(() => {
+          this.startKeepalive();
+        });
+    }, KEEPALIVE_INTERVAL_MS);
+  }
+
+  /** Stop background keepalive timer. */
+  stopKeepalive(): void {
+    if (keepaliveTimer) {
+      clearTimeout(keepaliveTimer);
+      keepaliveTimer = null;
+    }
+  }
+
   private async fetchDefaultTeamspace(cookies: string): Promise<string> {
     const response = await fetch(TEAMSPACES_API, {
       headers: {
@@ -139,7 +250,7 @@ export class Context7 implements ProviderAdapter {
       throw new Error(`HTTP ${response.status} fetching teamspaces`);
     }
 
-    this.mergeResponseCookies(response);
+    mergeResponseCookies(response);
 
     const raw = (await response.json()) as { success: boolean; data: Teamspace[] };
 
@@ -165,24 +276,11 @@ export class Context7 implements ProviderAdapter {
       throw new Error(`HTTP ${response.status} fetching stats`);
     }
 
-    this.mergeResponseCookies(response);
+    mergeResponseCookies(response);
 
     const raw = (await response.json()) as StatsResponse;
 
     return raw.data;
-  }
-
-  private mergeResponseCookies(response: Response): void {
-    const setCookies =
-      'getSetCookie' in response.headers
-        ? (response.headers as unknown as { getSetCookie(): string[] }).getSetCookie()
-        : [response.headers.get('set-cookie') ?? ''];
-
-    const valid = setCookies.filter(Boolean);
-
-    if (valid.length > 0) {
-      storedCookies = mergeSetCookies(storedCookies ?? '', valid);
-    }
   }
 
   private currentMonthPrefix(): string {

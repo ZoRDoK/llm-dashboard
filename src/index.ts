@@ -53,13 +53,15 @@ manager.register(new OllamaCloud());
 manager.register(new Codex());
 manager.register(new Tavily());
 manager.markSlow('tavily');
-manager.register(new Context7());
+const context7 = new Context7();
+manager.register(context7);
 
 manager.start();
 
 function shutdown(): void {
   console.info('Shutting down...');
 
+  context7.stopKeepalive();
   manager.stop();
   store.close();
 

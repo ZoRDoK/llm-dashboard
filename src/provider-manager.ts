@@ -96,6 +96,9 @@ export class ProviderManager {
   }
 
   async refresh(): Promise<Provider[]> {
+    const oldCache = new Map(this.cache);
+    const oldFetch = new Map(this.lastFetch);
+
     this.lastFetch.clear();
     this.cache.clear();
 
@@ -112,14 +115,11 @@ export class ProviderManager {
       if (result.status === 'fulfilled') {
         providers.push(result.value);
       } else {
-        // Adapter fetch failed — create a fallback Provider so the dashboard
-        // displays the error message instead of showing a blank/missing card.
-        const err = result.reason instanceof Error ? result.reason.message : String(result.reason);
-        const fallback = new Provider(adapter.id, adapter.name, 'unknown', [], err);
+        const recovered = this.recoverFailedFetch(adapter, result, oldCache, oldFetch);
 
-        this.lastFetch.set(adapter.id, Date.now());
-        this.cache.set(adapter.id, fallback);
-        providers.push(fallback);
+        if (recovered) {
+          providers.push(recovered);
+        }
       }
     }
 
@@ -137,6 +137,41 @@ export class ProviderManager {
     }
 
     return providers;
+  }
+
+  /**
+   * On fetch failure, try to serve stale data from cache or store.
+   * Falls back to an error placeholder when nothing is available.
+   */
+  private recoverFailedFetch(
+    adapter: ProviderAdapter,
+    result: PromiseSettledResult<Provider>,
+    oldCache: Map<string, Provider>,
+    oldFetch: Map<string, number>,
+  ): Provider | null {
+    if (result.status === 'fulfilled') {
+      return result.value;
+    }
+
+    const prev = oldCache.get(adapter.id);
+    const cached = prev?.error ? null : prev;
+    const stored = cached ?? this.store.get(adapter.id);
+
+    if (stored && !stored.error) {
+      // Serve stale data instead of showing an error
+      this.lastFetch.set(adapter.id, oldFetch.get(adapter.id) ?? Date.now());
+      this.cache.set(adapter.id, stored);
+
+      return stored;
+    }
+
+    const err = result.reason instanceof Error ? result.reason.message : String(result.reason);
+    const fallback = new Provider(adapter.id, adapter.name, 'unknown', [], err);
+
+    this.lastFetch.set(adapter.id, Date.now());
+    this.cache.set(adapter.id, fallback);
+
+    return fallback;
   }
 
   private scheduleSlowRefresh(): void {

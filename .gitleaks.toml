@@ -8,6 +8,7 @@ title = "ai-creds gitleaks config"
     '''\.gitleaks\.toml$''',
     '''node_modules/''',
     '''\.git/''',
+    '''data/''',
   ]
 
 [[rules]]

@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { refreshCookiesViaBrowser } from '../browser-cookies';
 import { config } from '../config';
 import { ModelUsage } from '../model-usage';
 import { Provider } from '../provider';
@@ -123,7 +124,18 @@ async function keepalive(): Promise<void> {
     mergeResponseCookies(response);
 
     if (response.status === HTTP_UNAUTHORIZED) {
-      console.warn('Context7 session expired, showing stale cached data');
+      console.warn('Context7 session expired, trying browser refresh via CDP...');
+
+      const result = await refreshCookiesViaBrowser(storedCookies);
+
+      if (result.ok && result.cookieString) {
+        storedCookies = result.cookieString;
+        saveCookies(storedCookies);
+        console.info('Context7 session refreshed via', result.mode);
+      } else if (result.error?.includes('Chrome not found')) {
+        console.warn('CDP unavailable — using cached data. Start Chrome with:');
+        console.warn('  google-chrome --remote-debugging-port=9222');
+      }
     }
   } catch (err) {
     // Network errors are expected during dev — don't spam logs

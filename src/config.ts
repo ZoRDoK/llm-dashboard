@@ -11,6 +11,7 @@ const EnvSchema = z.object({
   OPENCODE_GO_SESSION_COOKIE: z.string().optional(),
   OPENCODE_GO_WORKSPACE_ID: z.string().optional(),
   OPENAI_CODEX_ACCESS_TOKEN: z.string().optional(),
+  TAVILY_API_KEY: z.string().optional(),
 });
 
 const raw = EnvSchema.parse(process.env);
@@ -22,4 +23,5 @@ export const config = {
   openCodeGoSessionCookie: raw.OPENCODE_GO_SESSION_COOKIE,
   openCodeGoWorkspaceId: raw.OPENCODE_GO_WORKSPACE_ID,
   openaiCodexAccessToken: raw.OPENAI_CODEX_ACCESS_TOKEN,
+  tavilyApiKey: raw.TAVILY_API_KEY,
 };

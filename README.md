@@ -29,6 +29,7 @@ Open [http://localhost:3000](http://localhost:3000)
 | `MINIMAX_COOKIE` | MiniMax cookie for token plan |
 | `OLLAMA_CLOUD_API_KEY` | Ollama Cloud API key |
 | `OPENCODE_GO_API_KEY` | OpenCode Go API key |
+| `TAVILY_API_KEY` | Tavily API key for usage endpoint |
 | `SQLITE_PATH` | Path to SQLite database (default: `./cache.db`) |
 | `CACHE_TTL` | Cache TTL in seconds (default: `3600`) |
 | `PORT` | Server port (default: `3000`) |

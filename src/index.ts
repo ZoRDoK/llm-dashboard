@@ -5,6 +5,7 @@ import { Codex } from './adapters/codex';
 import { MiniMax } from './adapters/minimax';
 import { OllamaCloud } from './adapters/ollama-cloud';
 import { OpenCodeGo } from './adapters/opencode-go';
+import { Tavily } from './adapters/tavily';
 import { config } from './config';
 import { renderDashboard } from './html';
 import { ProviderManager } from './provider-manager';
@@ -49,6 +50,7 @@ manager.register(new MiniMax());
 manager.register(new OpenCodeGo());
 manager.register(new OllamaCloud());
 manager.register(new Codex());
+manager.register(new Tavily());
 
 manager.start();
 

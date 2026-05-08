@@ -35,7 +35,11 @@
     "domcontentloaded",
     "esets",
     "KHTML",
-    "mmap"
+    "mmap",
+    "Tavily",
+    "tavily",
+    "TAVILY",
+    "paygo"
   ],
   "ignorePaths": [
     "node_modules",

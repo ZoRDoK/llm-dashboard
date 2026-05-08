@@ -5,17 +5,28 @@ import type { ProviderAdapter } from '../types';
 import { UsageWindow } from '../usage-window';
 
 const FETCH_TIMEOUT_MS = 5_000;
-const TEAMSPACE_API = 'https://context7.com/api/dashboard/teamspaces';
-const TEAMSPACE_USAGE_API = 'https://context7.com/api/dashboard/teamspace';
+const TEAMSPACES_API = 'https://context7.com/api/dashboard/teamspaces';
+const STATS_API = 'https://context7.com/api/dashboard/stats';
 
 const USER_AGENT =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36';
 
-interface TeamspaceUsage {
-  dailyStats: DailyStat[];
-  quotaLimit: number | null;
-  ownerPlan: string;
-  creditBalance: number;
+// In-memory cookie store — refreshed on each API call via Set-Cookie
+let storedSessionCookie: string | null = null;
+
+interface Teamspace {
+  id: string;
+  name: string;
+}
+
+interface StatsResponse {
+  success: boolean;
+  data: {
+    dailyStats: DailyStat[];
+    quotaLimit: number | null;
+    ownerPlan: string;
+    creditBalance: number;
+  };
 }
 
 interface DailyStat {
@@ -24,6 +35,7 @@ interface DailyStat {
   search_requests: number;
   fetch_docs_requests: number;
   parse_tokens_cost: number;
+  member_cost: number;
   api_usage_cost: number;
   member_count: number;
 }
@@ -33,60 +45,59 @@ export class Context7 implements ProviderAdapter {
   name = 'Context7';
 
   async fetchUsage(): Promise<Provider> {
-    const sessionCookie = config.context7SessionCookie;
+    const initialCookie = storedSessionCookie ?? config.context7SessionCookie;
 
-    if (!sessionCookie) {
+    if (!initialCookie) {
       return new Provider(this.id, this.name, 'Not configured', []);
     }
 
-    const teamspaceId = await this.fetchDefaultTeamspaceId(sessionCookie);
-    const usage = await this.fetchTeamspaceUsage(sessionCookie, teamspaceId);
+    const { cookie, teamspaceId } = await this.fetchDefaultTeamspace(initialCookie);
+    const stats = await this.fetchStats(cookie, teamspaceId);
 
-    const plan = usage.ownerPlan.charAt(0).toUpperCase() + usage.ownerPlan.slice(1);
+    const plan = stats.ownerPlan.charAt(0).toUpperCase() + stats.ownerPlan.slice(1);
 
     const windows: UsageWindow[] = [];
 
-    // Monthly limit: creditBalance is remaining, quotaLimit is the cap
-    if (usage.quotaLimit != null && usage.quotaLimit > 0) {
-      const used = usage.quotaLimit - usage.creditBalance;
-      windows.push(UsageWindow.fromCounts('monthly', Math.max(0, used), usage.quotaLimit, null));
+    // Monthly quota: quotaLimit is the cap, creditBalance is remaining
+    if (stats.quotaLimit != null && stats.quotaLimit > 0) {
+      const used = stats.quotaLimit - stats.creditBalance;
+      windows.push(UsageWindow.fromCounts('monthly', Math.max(0, used), stats.quotaLimit, null));
     }
 
     // Current month aggregate
-    const currentMonth = usage.dailyStats
-      .filter((d) => d.date.startsWith(this.currentMonthPrefix()))
+    const currentMonth = this.currentMonthPrefix();
+    const agg = stats.dailyStats
+      .filter((d) => d.date.startsWith(currentMonth))
       .reduce(
         (acc, d) => ({
           parseTokens: acc.parseTokens + d.parse_tokens,
           searchRequests: acc.searchRequests + d.search_requests,
           fetchDocsRequests: acc.fetchDocsRequests + d.fetch_docs_requests,
-          cost: acc.cost + d.parse_tokens_cost + d.api_usage_cost,
         }),
-        { parseTokens: 0, searchRequests: 0, fetchDocsRequests: 0, cost: 0 },
+        { parseTokens: 0, searchRequests: 0, fetchDocsRequests: 0 },
       );
 
-    windows.push(
-      UsageWindow.fromCounts(
-        'parse_tokens',
-        currentMonth.parseTokens,
-        currentMonth.parseTokens,
-        null,
-      ),
-    );
-    windows.push(
-      UsageWindow.fromCounts(
-        'searches',
-        currentMonth.searchRequests,
-        currentMonth.searchRequests,
-        null,
-      ),
-    );
+    if (agg.parseTokens > 0) {
+      windows.push(UsageWindow.fromCounts('parse_tokens', agg.parseTokens, agg.parseTokens, null));
+    }
+    if (agg.searchRequests > 0) {
+      windows.push(
+        UsageWindow.fromCounts('searches', agg.searchRequests, agg.searchRequests, null),
+      );
+    }
+    if (agg.fetchDocsRequests > 0) {
+      windows.push(
+        UsageWindow.fromCounts('fetches', agg.fetchDocsRequests, agg.fetchDocsRequests, null),
+      );
+    }
 
     return new Provider(this.id, this.name, plan, [ModelUsage.from('Context7', windows)]);
   }
 
-  private async fetchDefaultTeamspaceId(sessionCookie: string): Promise<string> {
-    const response = await fetch(TEAMSPACE_API, {
+  private async fetchDefaultTeamspace(
+    sessionCookie: string,
+  ): Promise<{ cookie: string; teamspaceId: string }> {
+    const response = await fetch(TEAMSPACES_API, {
       headers: {
         cookie: sessionCookie,
         'user-agent': USER_AGENT,
@@ -98,20 +109,26 @@ export class Context7 implements ProviderAdapter {
       throw new Error(`HTTP ${response.status} fetching teamspaces`);
     }
 
-    const teamspaces = (await response.json()) as { id: string }[];
+    // Update stored cookie from Set-Cookie (session refreshes on each request)
+    this.updateStoredCookie(response);
 
-    if (!teamspaces?.length) {
+    const raw = (await response.json()) as { success: boolean; data: Teamspace[] };
+
+    if (!raw.data?.length) {
       throw new Error('No teamspaces found');
     }
 
-    return teamspaces[0].id;
+    return {
+      cookie: storedSessionCookie ?? sessionCookie,
+      teamspaceId: raw.data[0].id,
+    };
   }
 
-  private async fetchTeamspaceUsage(
+  private async fetchStats(
     sessionCookie: string,
     teamspaceId: string,
-  ): Promise<TeamspaceUsage> {
-    const url = `${TEAMSPACE_USAGE_API}/${encodeURIComponent(teamspaceId)}`;
+  ): Promise<StatsResponse['data']> {
+    const url = `${STATS_API}/${encodeURIComponent(teamspaceId)}`;
 
     const response = await fetch(url, {
       headers: {
@@ -122,12 +139,29 @@ export class Context7 implements ProviderAdapter {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status} fetching teamspace usage`);
+      throw new Error(`HTTP ${response.status} fetching stats`);
     }
 
-    const raw = (await response.json()) as TeamspaceUsage;
+    this.updateStoredCookie(response);
 
-    return raw;
+    const raw = (await response.json()) as StatsResponse;
+
+    return raw.data;
+  }
+
+  private updateStoredCookie(response: Response): void {
+    // Node.js 20+ supports getSetCookie() which returns all Set-Cookie headers.
+    // Fallback to get('set-cookie') which may return comma-joined string.
+    const cookies =
+      'getSetCookie' in response.headers
+        ? (response.headers as unknown as { getSetCookie(): string[] }).getSetCookie()
+        : [response.headers.get('set-cookie') ?? ''];
+
+    const valid = cookies.filter(Boolean);
+
+    if (valid.length > 0) {
+      storedSessionCookie = valid.join('; ');
+    }
   }
 
   private currentMonthPrefix(): string {

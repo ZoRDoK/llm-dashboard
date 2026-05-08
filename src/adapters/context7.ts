@@ -11,8 +11,37 @@ const STATS_API = 'https://context7.com/api/dashboard/stats';
 const USER_AGENT =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36';
 
-// In-memory cookie store — refreshed on each API call via Set-Cookie
-let storedSessionCookie: string | null = null;
+// In-memory cookie store — starts from config, refreshed via Set-Cookie
+let storedCookies: string | null = null;
+
+/** Parse a Set-Cookie header value into name=value pair, dropping attributes. */
+function parseSetCookieValue(setCookie: string): string {
+  const semi = setCookie.indexOf(';');
+  return semi === -1 ? setCookie : setCookie.slice(0, semi);
+}
+
+/** Replace individual cookies in base string with values from Set-Cookie headers. */
+function mergeSetCookies(base: string, setCookies: string[]): string {
+  if (setCookies.length === 0) {
+    return base;
+  }
+
+  const parsed = setCookies.map(parseSetCookieValue);
+  const parts = base.split('; ');
+
+  for (const fresh of parsed) {
+    const [name] = fresh.split('=');
+    const idx = parts.findIndex((p) => p.startsWith(`${name}=`) || p === name);
+
+    if (idx === -1) {
+      parts.push(fresh);
+    } else {
+      parts[idx] = fresh;
+    }
+  }
+
+  return parts.join('; ');
+}
 
 interface Teamspace {
   id: string;
@@ -45,14 +74,17 @@ export class Context7 implements ProviderAdapter {
   name = 'Context7';
 
   async fetchUsage(): Promise<Provider> {
-    const initialCookie = storedSessionCookie ?? config.context7SessionCookie;
+    // Initialize stored cookies from config on first call
+    if (!storedCookies) {
+      storedCookies = config.context7SessionCookie;
+    }
 
-    if (!initialCookie) {
+    if (!storedCookies) {
       return new Provider(this.id, this.name, 'Not configured', []);
     }
 
-    const { cookie, teamspaceId } = await this.fetchDefaultTeamspace(initialCookie);
-    const stats = await this.fetchStats(cookie, teamspaceId);
+    const teamspaceId = await this.fetchDefaultTeamspace(storedCookies);
+    const stats = await this.fetchStats(storedCookies, teamspaceId);
 
     const plan = stats.ownerPlan.charAt(0).toUpperCase() + stats.ownerPlan.slice(1);
 
@@ -94,12 +126,10 @@ export class Context7 implements ProviderAdapter {
     return new Provider(this.id, this.name, plan, [ModelUsage.from('Context7', windows)]);
   }
 
-  private async fetchDefaultTeamspace(
-    sessionCookie: string,
-  ): Promise<{ cookie: string; teamspaceId: string }> {
+  private async fetchDefaultTeamspace(cookies: string): Promise<string> {
     const response = await fetch(TEAMSPACES_API, {
       headers: {
-        cookie: sessionCookie,
+        cookie: cookies,
         'user-agent': USER_AGENT,
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -109,8 +139,7 @@ export class Context7 implements ProviderAdapter {
       throw new Error(`HTTP ${response.status} fetching teamspaces`);
     }
 
-    // Update stored cookie from Set-Cookie (session refreshes on each request)
-    this.updateStoredCookie(response);
+    this.mergeResponseCookies(response);
 
     const raw = (await response.json()) as { success: boolean; data: Teamspace[] };
 
@@ -118,21 +147,15 @@ export class Context7 implements ProviderAdapter {
       throw new Error('No teamspaces found');
     }
 
-    return {
-      cookie: storedSessionCookie ?? sessionCookie,
-      teamspaceId: raw.data[0].id,
-    };
+    return raw.data[0].id;
   }
 
-  private async fetchStats(
-    sessionCookie: string,
-    teamspaceId: string,
-  ): Promise<StatsResponse['data']> {
+  private async fetchStats(cookies: string, teamspaceId: string): Promise<StatsResponse['data']> {
     const url = `${STATS_API}/${encodeURIComponent(teamspaceId)}`;
 
     const response = await fetch(url, {
       headers: {
-        cookie: sessionCookie,
+        cookie: cookies,
         'user-agent': USER_AGENT,
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -142,25 +165,23 @@ export class Context7 implements ProviderAdapter {
       throw new Error(`HTTP ${response.status} fetching stats`);
     }
 
-    this.updateStoredCookie(response);
+    this.mergeResponseCookies(response);
 
     const raw = (await response.json()) as StatsResponse;
 
     return raw.data;
   }
 
-  private updateStoredCookie(response: Response): void {
-    // Node.js 20+ supports getSetCookie() which returns all Set-Cookie headers.
-    // Fallback to get('set-cookie') which may return comma-joined string.
-    const cookies =
+  private mergeResponseCookies(response: Response): void {
+    const setCookies =
       'getSetCookie' in response.headers
         ? (response.headers as unknown as { getSetCookie(): string[] }).getSetCookie()
         : [response.headers.get('set-cookie') ?? ''];
 
-    const valid = cookies.filter(Boolean);
+    const valid = setCookies.filter(Boolean);
 
     if (valid.length > 0) {
-      storedSessionCookie = valid.join('; ');
+      storedCookies = mergeSetCookies(storedCookies ?? '', valid);
     }
   }
 

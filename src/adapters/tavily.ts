@@ -23,7 +23,7 @@ const UsageSchema = z.object({
     plan_usage: z.number(),
     plan_limit: z.number(),
     paygo_usage: z.number(),
-    paygo_limit: z.number(),
+    paygo_limit: z.number().nullable(),
     search_usage: z.number(),
     extract_usage: z.number(),
     crawl_usage: z.number(),

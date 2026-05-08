@@ -43,9 +43,11 @@
     "Context7",
     "context7",
     "CONTEXT7",
-    "ctx7sk",
-    "libraryId",
-    "libraryIds"
+    "teamspace",
+    "TEAMSPACE",
+    "teamspaces",
+    "teamspaceId",
+    "Teamspace"
   ],
   "ignorePaths": [
     "node_modules",

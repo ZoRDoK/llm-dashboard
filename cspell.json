@@ -39,7 +39,13 @@
     "Tavily",
     "tavily",
     "TAVILY",
-    "paygo"
+    "paygo",
+    "Context7",
+    "context7",
+    "CONTEXT7",
+    "ctx7sk",
+    "libraryId",
+    "libraryIds"
   ],
   "ignorePaths": [
     "node_modules",

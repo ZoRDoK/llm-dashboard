@@ -12,6 +12,8 @@ const EnvSchema = z.object({
   OPENCODE_GO_WORKSPACE_ID: z.string().optional(),
   OPENAI_CODEX_ACCESS_TOKEN: z.string().optional(),
   TAVILY_API_KEY: z.string().optional(),
+  CONTEXT7_API_KEY: z.string().optional(),
+  CONTEXT7_LIBRARY_IDS: z.string().optional(),
 });
 
 const raw = EnvSchema.parse(process.env);
@@ -24,4 +26,9 @@ export const config = {
   openCodeGoWorkspaceId: raw.OPENCODE_GO_WORKSPACE_ID,
   openaiCodexAccessToken: raw.OPENAI_CODEX_ACCESS_TOKEN,
   tavilyApiKey: raw.TAVILY_API_KEY,
+  context7ApiKey: raw.CONTEXT7_API_KEY,
+  context7LibraryIds:
+    raw.CONTEXT7_LIBRARY_IDS?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean) ?? [],
 };

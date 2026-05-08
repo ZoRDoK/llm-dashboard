@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { Codex } from './adapters/codex';
+import { Context7 } from './adapters/context7';
 import { MiniMax } from './adapters/minimax';
 import { OllamaCloud } from './adapters/ollama-cloud';
 import { OpenCodeGo } from './adapters/opencode-go';
@@ -51,6 +52,7 @@ manager.register(new OpenCodeGo());
 manager.register(new OllamaCloud());
 manager.register(new Codex());
 manager.register(new Tavily());
+manager.register(new Context7());
 
 manager.start();
 

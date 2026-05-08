@@ -52,6 +52,7 @@ manager.register(new OpenCodeGo());
 manager.register(new OllamaCloud());
 manager.register(new Codex());
 manager.register(new Tavily());
+manager.markSlow('tavily');
 manager.register(new Context7());
 
 manager.start();

@@ -3,13 +3,16 @@ import type { ProviderStore } from './store';
 import type { ProviderAdapter } from './types';
 
 const TICK_INTERVAL_MS = 60_000;
+const SLOW_TICK_INTERVAL_MS = 600_000; // 10 minutes for rate-limited providers
 
 export class ProviderManager {
   private adapters: ProviderAdapter[] = [];
   private store: ProviderStore;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private slowTimer: ReturnType<typeof setTimeout> | null = null;
   private cache: Map<string, Provider> = new Map();
   private lastFetch: Map<string, number> = new Map();
+  private slowAdapters: Set<string> = new Set();
 
   constructor(store: ProviderStore) {
     this.store = store;
@@ -19,12 +22,18 @@ export class ProviderManager {
     this.adapters.push(adapter);
   }
 
+  /** Mark a provider as rate-limited — fetched on SLOW_TICK_INTERVAL instead of TICK_INTERVAL. */
+  markSlow(id: string): void {
+    this.slowAdapters.add(id);
+  }
+
   start(): void {
     if (this.timer) {
       return;
     }
 
     this.scheduleRefresh();
+    this.scheduleSlowRefresh();
   }
 
   private scheduleRefresh(): void {
@@ -41,6 +50,11 @@ export class ProviderManager {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
+    }
+
+    if (this.slowTimer) {
+      clearTimeout(this.slowTimer);
+      this.slowTimer = null;
     }
   }
 
@@ -85,13 +99,15 @@ export class ProviderManager {
     this.lastFetch.clear();
     this.cache.clear();
 
-    const results = await Promise.allSettled(this.adapters.map((a) => this.fetchOne(a)));
+    const activeAdapters = this.adapters.filter((a) => !this.slowAdapters.has(a.id));
+    const results = await Promise.allSettled(activeAdapters.map((a) => this.fetchOne(a)));
 
     const providers: Provider[] = [];
+    const activeSet = new Set(activeAdapters);
 
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
-      const adapter = this.adapters[i];
+      const adapter = activeAdapters[i];
 
       if (result.status === 'fulfilled') {
         providers.push(result.value);
@@ -107,7 +123,44 @@ export class ProviderManager {
       }
     }
 
+    // Add cached values for slow adapters so they still appear on the dashboard
+    for (const adapter of this.adapters) {
+      if (activeSet.has(adapter)) {
+        continue;
+      }
+
+      const cached = this.cache.get(adapter.id);
+
+      if (cached) {
+        providers.push(cached);
+      }
+    }
+
     return providers;
+  }
+
+  private scheduleSlowRefresh(): void {
+    this.refreshSlow()
+      .catch((err) => {
+        console.error('Slow refresh failed:', err);
+      })
+      .finally(() => {
+        this.slowTimer = setTimeout(() => this.scheduleSlowRefresh(), SLOW_TICK_INTERVAL_MS);
+      });
+  }
+
+  private async refreshSlow(): Promise<void> {
+    for (const adapter of this.adapters) {
+      if (!this.slowAdapters.has(adapter.id)) {
+        continue;
+      }
+
+      try {
+        await this.fetchOne(adapter);
+      } catch (err) {
+        console.error(`Slow refresh failed for ${adapter.id}:`, err);
+      }
+    }
   }
 
   private async fetchOne(adapter: ProviderAdapter): Promise<Provider> {

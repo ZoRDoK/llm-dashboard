@@ -13,6 +13,7 @@ const EnvSchema = z.object({
   OPENAI_CODEX_ACCESS_TOKEN: z.string().optional(),
   TAVILY_API_KEY: z.string().optional(),
   CONTEXT7_SESSION_COOKIE: z.string().optional(),
+  CROFS_API_KEY: z.string().optional(),
 });
 
 const raw = EnvSchema.parse(process.env);
@@ -26,4 +27,5 @@ export const config = {
   openaiCodexAccessToken: raw.OPENAI_CODEX_ACCESS_TOKEN,
   tavilyApiKey: raw.TAVILY_API_KEY,
   context7SessionCookie: raw.CONTEXT7_SESSION_COOKIE,
+  crofsApiKey: raw.CROFS_API_KEY,
 };

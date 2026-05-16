@@ -1,4 +1,4 @@
-import { parseResetIn } from './time-utils';
+import { parseResetIn } from './time-utils.js';
 
 const PERCENT_MAX = 100;
 

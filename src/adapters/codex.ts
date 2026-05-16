@@ -1,11 +1,11 @@
 import { z } from 'zod';
-import { config } from '../config';
-import { ModelUsage } from '../model-usage';
-import { Provider } from '../provider';
-import { epochToIso } from '../time-utils';
-import type { ProviderAdapter } from '../types';
-import { UsageWindow } from '../usage-window';
-import { CodexAuth } from './codex-auth';
+import { config } from '../config.js';
+import { ModelUsage } from '../model-usage.js';
+import { Provider } from '../provider.js';
+import { epochToIso } from '../time-utils.js';
+import type { ProviderAdapter } from '../types.js';
+import { UsageWindow } from '../usage-window.js';
+import { CodexAuth } from './codex-auth.js';
 
 const FETCH_TIMEOUT_MS = 5_000;
 const USAGE_ENDPOINT = 'https://chatgpt.com/backend-api/wham/usage';

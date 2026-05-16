@@ -1,7 +1,7 @@
-import { config } from '../config';
-import { Provider } from '../provider';
-import type { ProviderAdapter } from '../types';
-import { UsageWindow } from '../usage-window';
+import { config } from '../config.js';
+import { Provider } from '../provider.js';
+import type { ProviderAdapter } from '../types.js';
+import { UsageWindow } from '../usage-window.js';
 
 const SETTINGS_URL = 'https://ollama.com/settings';
 const FETCH_TIMEOUT_MS = 5_000;

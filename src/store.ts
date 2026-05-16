@@ -5,7 +5,7 @@
  * because operations are small, infrequent, and run in a single-process server.
  */
 import { DatabaseSync } from 'node:sqlite';
-import type { Provider } from './provider';
+import type { Provider } from './provider.js';
 
 export class ProviderStore {
   private db: DatabaseSync | null = null;

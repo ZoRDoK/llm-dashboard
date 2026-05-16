@@ -1,9 +1,9 @@
 import { z } from 'zod';
-import { config } from '../config';
-import { ModelUsage } from '../model-usage';
-import { Provider } from '../provider';
-import type { ProviderAdapter } from '../types';
-import { UsageWindow } from '../usage-window';
+import { config } from '../config.js';
+import { ModelUsage } from '../model-usage.js';
+import { Provider } from '../provider.js';
+import type { ProviderAdapter } from '../types.js';
+import { UsageWindow } from '../usage-window.js';
 
 const FETCH_TIMEOUT_MS = 5_000;
 const USAGE_ENDPOINT = 'https://api.tavily.com/usage';
@@ -62,7 +62,7 @@ export class Tavily implements ProviderAdapter {
     }
 
     // Pay-as-you-go usage (if applicable)
-    if (data.account.paygo_limit > 0) {
+    if (data.account.paygo_limit != null && data.account.paygo_limit > 0) {
       windows.push(
         UsageWindow.fromCounts('paygo', data.account.paygo_usage, data.account.paygo_limit, null),
       );

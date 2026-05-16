@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { refreshCookiesViaBrowser } from '../browser-cookies';
-import { config } from '../config';
-import { ModelUsage } from '../model-usage';
-import { Provider } from '../provider';
-import type { ProviderAdapter } from '../types';
-import { UsageWindow } from '../usage-window';
+import { refreshCookiesViaBrowser } from '../browser-cookies.js';
+import { config } from '../config.js';
+import { ModelUsage } from '../model-usage.js';
+import { Provider } from '../provider.js';
+import type { ProviderAdapter } from '../types.js';
+import { UsageWindow } from '../usage-window.js';
 
 const FETCH_TIMEOUT_MS = 5_000;
 const KEEPALIVE_INTERVAL_MS = 180_000; // 3 minutes
@@ -146,10 +146,8 @@ async function keepalive(): Promise<void> {
 }
 
 function mergeResponseCookies(response: Response): void {
-  const setCookies =
-    'getSetCookie' in response.headers
-      ? (response.headers as unknown as { getSetCookie(): string[] }).getSetCookie()
-      : [response.headers.get('set-cookie') ?? ''];
+  const headers = response.headers as Headers & { getSetCookie?(): string[] };
+  const setCookies = headers.getSetCookie?.() ?? [headers.get('set-cookie') ?? ''];
 
   const valid = setCookies.filter(Boolean);
 

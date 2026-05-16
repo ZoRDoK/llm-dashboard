@@ -1,7 +1,7 @@
-import { config } from '../config';
-import { Provider } from '../provider';
-import type { ProviderAdapter } from '../types';
-import { WindowsAgg } from '../windows-agg';
+import { config } from '../config.js';
+import { Provider } from '../provider.js';
+import type { ProviderAdapter } from '../types.js';
+import { WindowsAgg } from '../windows-agg.js';
 
 const FETCH_TIMEOUT_MS = 5_000;
 const GO_USAGE_URL = 'https://opencode.ai/workspace';

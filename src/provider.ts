@@ -1,5 +1,5 @@
-import { ModelUsage } from './model-usage';
-import type { UsageWindow } from './usage-window';
+import { ModelUsage } from './model-usage.js';
+import type { UsageWindow } from './usage-window.js';
 
 export class Provider {
   constructor(

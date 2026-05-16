@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { ModelUsage } from './model-usage';
-import type { Provider } from './provider';
-import type { UsageWindow } from './usage-window';
+import type { ModelUsage } from './model-usage.js';
+import type { Provider } from './provider.js';
+import type { UsageWindow } from './usage-window.js';
 
 // ── Load all theme CSS files once at module init ────────────
 const __dirname = import.meta.dirname;
@@ -74,6 +74,23 @@ function formatNumber(n: number | null): string {
   return n.toLocaleString('en');
 }
 
+/** Format milliseconds remaining until a future timestamp. */
+function formatTimeUntil(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return '';
+  }
+  if (ms >= MS_PER_DAY) {
+    return `${Math.ceil(ms / MS_PER_DAY)}d`;
+  }
+  if (ms >= MS_PER_HOUR) {
+    return `${Math.ceil(ms / MS_PER_HOUR)}h`;
+  }
+  if (ms >= MS_PER_MINUTE) {
+    return `${Math.ceil(ms / MS_PER_MINUTE)}m`;
+  }
+  return '<1m';
+}
+
 function toDateInputValue(iso: string | undefined): string {
   if (!iso) {
     return '';
@@ -104,15 +121,37 @@ const DAYS_PER_WEEK = 7;
 const DAYS_PER_MONTH = 30;
 const MS_PER_HOUR = 3_600_000;
 
-const RING_RADIUS = 7;
-const RING_C = 2 * Math.PI * RING_RADIUS;
 const REFRESH_RADIUS = 14;
 const REFRESH_CIRCUMFERENCE = 2 * Math.PI * REFRESH_RADIUS;
 
 const RESET_NEAR_THRESHOLD = 0.85;
-const RESET_FAR_THRESHOLD = 0.3;
+const RESET_MID_THRESHOLD = 0.625;
 const BILLING_URGENT_DAYS = 5;
 const MS_PER_DAY = 86_400_000;
+
+const MS_PER_MINUTE = 60_000;
+
+export function formatElapsed(ts: number | null): string {
+  if (ts == null) {
+    return '';
+  }
+
+  const elapsed = Date.now() - ts;
+
+  if (elapsed >= MS_PER_DAY) {
+    return `${Math.floor(elapsed / MS_PER_DAY)}d`;
+  }
+
+  if (elapsed >= MS_PER_HOUR) {
+    return `${Math.floor(elapsed / MS_PER_HOUR)}h`;
+  }
+
+  if (elapsed >= MS_PER_MINUTE) {
+    return `${Math.floor(elapsed / MS_PER_MINUTE)}m`;
+  }
+
+  return 'now';
+}
 
 /** Map window label to approximate cycle duration in ms. */
 function cycleMs(label: string): number | null {
@@ -133,10 +172,11 @@ function cycleMs(label: string): number | null {
   }
 }
 
+const SEGMENT_COUNT = 8;
+
 /**
- * Render a small SVG ring showing progress toward the next reset.
- * Empty = just reset, full = about to reset.
- * Color: positive when close to reset, negative when far away.
+ * Render one of 8 quarter-block characters based on elapsed time.
+ * ▖=12% ▗=25% ▘=37% ▙=50% ▚=62% ▛=75% ▜=87% █=100%
  */
 function renderResetRing(label: string, resetAt: string | null): string {
   if (!resetAt) {
@@ -148,31 +188,28 @@ function renderResetRing(label: string, resetAt: string | null): string {
   }
   const remaining = new Date(resetAt).getTime() - Date.now();
   if (!Number.isFinite(remaining) || remaining <= 0) {
-    return ''; // already past reset time or invalid date
+    return '';
   }
-  const progress = 1 - remaining / cycle; // 0 just after reset, 1 at reset
-  const clamped = Math.max(0, Math.min(1, progress));
-  const offset = RING_C * (1 - clamped);
 
-  // Color: close to reset → positive, far → neutral/negative
-  let mood: string;
-  if (clamped >= RESET_NEAR_THRESHOLD) {
-    mood = 'positive'; // reset imminent — relief
-  } else if (clamped < RESET_FAR_THRESHOLD) {
-    mood = 'neutral'; // just reset — calm
+  // progress = 0 when just reset, = 1 when about to reset
+  const progress = Math.min(1, Math.max(0, 1 - remaining / cycle));
+  const idx = Math.min(SEGMENT_COUNT - 1, Math.floor(progress * SEGMENT_COUNT));
+
+  // Quarter-block characters: increasing fill left-to-right
+  const blocks = ['▖', '▗', '▘', '▙', '▚', '▛', '▜', '█'];
+  const block = blocks[idx];
+
+  // Color: green when close to reset (good), yellow mid, red when far (bad)
+  let colorClass: string;
+  if (progress >= RESET_NEAR_THRESHOLD) {
+    colorClass = 'text-green-500';
+  } else if (progress >= RESET_MID_THRESHOLD) {
+    colorClass = 'text-yellow-500';
   } else {
-    mood = 'negative'; // far from reset — waiting
+    colorClass = 'text-red-500/60';
   }
 
-  return `
-    <svg class="reset-ring ${mood}" width="20" height="20" viewBox="0 0 20 20">
-      <circle class="track" cx="10" cy="10" r="7" fill="none" stroke-width="2.5"/>
-      <circle class="fill" cx="10" cy="10" r="7" fill="none" stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-dasharray="${RING_C} ${RING_C}"
-              stroke-dashoffset="${offset}"
-              transform="rotate(-90 10 10)"/>
-    </svg>`;
+  return `<span class="font-mono text-xs ${colorClass}">${block}</span>`;
 }
 
 function buildUsageParts(window: UsageWindow): string {
@@ -241,7 +278,10 @@ function renderWindowMeta(window: UsageWindow): string {
     return '<span></span>';
   }
 
-  return `<span class="inline-flex items-center gap-1.5 min-w-[4rem]">${resetRing}</span>`;
+  const remaining = window.resetAt ? new Date(window.resetAt).getTime() - Date.now() : null;
+  const timeText = remaining == null ? '' : formatTimeUntil(remaining);
+
+  return `<span class="inline-flex items-center gap-1.5 min-w-[4rem]">${resetRing}${timeText}</span>`;
 }
 
 function windowRow(window: UsageWindow): string {
@@ -487,19 +527,6 @@ export function renderDashboard(
       stroke: var(--theme-accent);
     }
 
-    /* ── Reset countdown ring ── */
-    .reset-ring {
-      flex-shrink: 0;
-    }
-    .reset-ring .track {
-      stroke: var(--theme-border);
-    }
-    .reset-ring .fill {
-      transition: stroke-dashoffset 1s ease-out, stroke 1.5s ease-out;
-    }
-    .reset-ring.positive .fill { stroke: var(--theme-success); }
-    .reset-ring.neutral .fill { stroke: var(--theme-accent); }
-    .reset-ring.negative .fill { stroke: var(--theme-warning); }
   </style>
 </head>
 <body class="bg-theme-bg text-theme-text min-h-screen theme-transition">
@@ -519,6 +546,7 @@ export function renderDashboard(
                     stroke-dashoffset="${REFRESH_CIRCUMFERENCE}"
                     transform="rotate(-90 18 18)"/>
           </svg>
+          <span id="last-updated-time" class="text-xs text-theme-text-secondary font-mono tabular-nums w-16 text-right" data-updated="${lastUpdated ?? ''}">${formatElapsed(lastUpdated)}</span>
           <button onclick="ThemeManager.rotate()"
             class="p-1.5 rounded-theme-sm bg-theme-bg-tertiary hover:bg-theme-bg-secondary transition-theme duration-theme"
             title="Switch theme (Ctrl+T)">
@@ -738,8 +766,45 @@ export function renderDashboard(
       progressCircle.className = 'refresh-circle ' + colorClass;
     }
 
+    // ── Last-updated time ────────────────────────────────────
+    const MS_MINUTE = 60_000;
+    const MS_HOUR = 3_600_000;
+    const MS_DAY = 86_400_000;
+
+    const timeDisplay = document.getElementById('last-updated-time');
+
+    function updateLastUpdatedTime() {
+      if (!timeDisplay) return;
+
+      const ts = parseInt(timeDisplay.dataset.updated, 10);
+      if (!ts) {
+        timeDisplay.textContent = '';
+        return;
+      }
+
+      const elapsed = Date.now() - ts;
+
+      let text;
+      if (elapsed >= MS_DAY) {
+        const days = Math.floor(elapsed / MS_DAY);
+        text = days + 'd';
+      } else if (elapsed >= MS_HOUR) {
+        const hours = Math.floor(elapsed / MS_HOUR);
+        text = hours + 'h';
+      } else if (elapsed >= MS_MINUTE) {
+        const minutes = Math.floor(elapsed / MS_MINUTE);
+        text = minutes + 'm';
+      } else {
+        text = 'now';
+      }
+
+      timeDisplay.textContent = text;
+    }
+
     setInterval(updateRefreshCircle, 1000);
+    setInterval(updateLastUpdatedTime, 10_000);
     updateRefreshCircle();
+    updateLastUpdatedTime();
 
 
     // ── Refresh ──────────────────────────────────────────────

@@ -1,17 +1,17 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { Codex } from './adapters/codex';
-import { Context7 } from './adapters/context7';
-import { Crofs } from './adapters/crofs';
-import { MiniMax } from './adapters/minimax';
-import { OllamaCloud } from './adapters/ollama-cloud';
-import { OpenCodeGo } from './adapters/opencode-go';
-import { Tavily } from './adapters/tavily';
-import { config } from './config';
-import { renderDashboard } from './html';
-import { ProviderManager } from './provider-manager';
-import { ProviderStore } from './store';
+import { Codex } from './adapters/codex.js';
+import { Context7 } from './adapters/context7.js';
+import { Crofs } from './adapters/crofs.js';
+import { MiniMax } from './adapters/minimax.js';
+import { OllamaCloud } from './adapters/ollama-cloud.js';
+import { OpenCodeGo } from './adapters/opencode-go.js';
+import { Tavily } from './adapters/tavily.js';
+import { config } from './config.js';
+import { renderDashboard } from './html.js';
+import { ProviderManager } from './provider-manager.js';
+import { ProviderStore } from './store.js';
 
 const BILLING_BODY_SCHEMA = z.object({
   billingOverrides: z.record(z.string(), z.string().nullable()),

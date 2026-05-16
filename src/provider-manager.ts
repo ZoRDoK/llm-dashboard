@@ -1,6 +1,6 @@
-import { Provider } from './provider';
-import type { ProviderStore } from './store';
-import type { ProviderAdapter } from './types';
+import { Provider } from './provider.js';
+import type { ProviderStore } from './store.js';
+import type { ProviderAdapter } from './types.js';
 
 const TICK_INTERVAL_MS = 60_000;
 const SLOW_TICK_INTERVAL_MS = 600_000; // 10 minutes for rate-limited providers

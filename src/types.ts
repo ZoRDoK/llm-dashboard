@@ -1,4 +1,4 @@
-import type { Provider } from './provider';
+import type { Provider } from './provider.js';
 
 export interface ProviderAdapter {
   id: string;

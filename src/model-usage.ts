@@ -1,4 +1,4 @@
-import type { UsageWindow } from './usage-window';
+import type { UsageWindow } from './usage-window.js';
 
 export class ModelUsage {
   private constructor(

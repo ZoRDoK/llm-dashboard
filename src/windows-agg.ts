@@ -1,5 +1,5 @@
-import { SectionData } from './section-data';
-import { UsageWindow } from './usage-window';
+import { SectionData } from './section-data.js';
+import { UsageWindow } from './usage-window.js';
 
 export class WindowsAgg {
   private constructor() {}

@@ -1,16 +1,14 @@
 import { z } from 'zod';
-import { config } from '../config';
-import { ModelUsage } from '../model-usage';
-import { Provider } from '../provider';
-import type { ProviderAdapter } from '../types';
-import { UsageWindow } from '../usage-window';
+import { config } from '../config.js';
+import { ModelUsage } from '../model-usage.js';
+import { Provider } from '../provider.js';
+import type { ProviderAdapter } from '../types.js';
+import { UsageWindow } from '../usage-window.js';
 
 const FETCH_TIMEOUT_MS = 5_000;
 const ENDPOINT = 'https://crof.ai/usage_api/';
 
 // Daily reset at 08:00 UTC+3 = 05:00 UTC
-const PRECISION_MULTIPLIER = 1000;
-const PERCENT_DIVISOR = 10;
 const RESET_HOUR_UTC = 5;
 const RESET_MINUTE = 40;
 
@@ -68,25 +66,15 @@ export class Crofs implements ProviderAdapter {
 
     if (plan > 0) {
       const used = Math.max(0, plan - (data.usable_requests ?? 0));
-      const usedPct = Math.round((used / plan) * PRECISION_MULTIPLIER) / PERCENT_DIVISOR;
 
-      windows.push(new UsageWindow('daily', usedPct, null, used, plan, null, resetAt, null));
+      windows.push(UsageWindow.fromCounts('daily', used, plan, resetAt));
     } else if (data.usable_requests !== null) {
       windows.push(
-        new UsageWindow(
-          'daily',
-          null,
-          null,
-          null,
-          null,
-          null,
-          resetAt,
-          `${data.usable_requests} requests left`,
-        ),
+        UsageWindow.fromApi('daily', null, resetAt, null, `${data.usable_requests} requests left`),
       );
     }
 
-    windows.push(new UsageWindow('credits', null, null, null, null, data.credits, null, null));
+    windows.push(UsageWindow.fromApi('credits', null, null, data.credits));
 
     return new Provider(this.id, this.name, 'API', [ModelUsage.from('API Usage', windows)]);
   }

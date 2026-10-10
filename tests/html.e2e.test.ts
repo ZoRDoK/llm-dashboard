@@ -1,7 +1,7 @@
 import { type Browser, chromium, type Page } from '@playwright/test';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const BASE_URL = 'http://localhost:3002';
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3002';
 const BOUNDING_BOX_TOLERANCE = 5;
 
 let browser: Browser;

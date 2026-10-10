@@ -1,9 +1,14 @@
 node_modules/
 dist/
-.env
+.env*
+!.env.example
 reports/
+coverage/
 .chorus/
 *.tsbuildinfo
+
+# Pi subagent runtime artifacts (machine-specific, do not commit)
+.pi-subagents/
 
 # Taskplane runtime artifacts (machine-specific, do not commit)
 .pi/batch-state.json
@@ -29,3 +34,4 @@ data/
 # Pi agent config
 .pi/taskplane-config.json
 .pi/taskplane.json
+.pi-web/

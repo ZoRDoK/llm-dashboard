@@ -1,11 +1,10 @@
 import { z } from 'zod';
 import { config } from '../config.js';
-import { ModelUsage } from '../model-usage.js';
+import { fetchAndParse } from '../fetch-utils.js';
 import { Provider } from '../provider.js';
 import type { ProviderAdapter } from '../types.js';
 import { UsageWindow } from '../usage-window.js';
 
-const FETCH_TIMEOUT_MS = 5_000;
 const USAGE_ENDPOINT = 'https://api.tavily.com/usage';
 
 const UsageSchema = z.object({
@@ -32,20 +31,31 @@ const UsageSchema = z.object({
   }),
 });
 
-type TavilyResponse = z.infer<typeof UsageSchema>;
+interface TavilyOptions {
+  id?: string;
+  name?: string;
+  apiKey?: string;
+}
 
 export class Tavily implements ProviderAdapter {
-  id = 'tavily';
-  name = 'Tavily';
+  readonly id: string;
+  readonly name: string;
+  private readonly apiKey: string | undefined;
+
+  constructor(opts: TavilyOptions = {}) {
+    this.id = opts.id ?? 'tavily';
+    this.name = opts.name ?? 'Tavily';
+    this.apiKey = opts.apiKey ?? config.TAVILY_API_KEY;
+  }
 
   async fetchUsage(): Promise<Provider> {
-    const apiKey = config.tavilyApiKey;
+    const apiKey = this.apiKey;
 
     if (!apiKey) {
-      return new Provider(this.id, this.name, 'Not configured', []);
+      return Provider.notConfigured(this.id, this.name);
     }
 
-    const data = await this.fetchData(apiKey);
+    const data = await fetchAndParse(USAGE_ENDPOINT, apiKey, UsageSchema);
 
     const windows: UsageWindow[] = [];
 
@@ -69,27 +79,7 @@ export class Tavily implements ProviderAdapter {
     }
 
     return new Provider(this.id, this.name, data.account.current_plan, [
-      ModelUsage.from('Tavily', windows),
+      { modelName: 'Tavily', windows },
     ]);
-  }
-
-  private async fetchData(apiKey: string): Promise<TavilyResponse> {
-    const payload = {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    };
-
-    const response = await fetch(USAGE_ENDPOINT, payload);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const raw = (await response.json()) as unknown;
-
-    return UsageSchema.parse(raw);
   }
 }

@@ -1,0 +1,6 @@
+/* biome-ignore lint/suspicious/noUnknownAtRules: tailwind build directives */
+@tailwind base;
+/* biome-ignore lint/suspicious/noUnknownAtRules: tailwind build directives */
+@tailwind components;
+/* biome-ignore lint/suspicious/noUnknownAtRules: tailwind build directives */
+@tailwind utilities;

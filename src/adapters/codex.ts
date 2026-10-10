@@ -1,26 +1,35 @@
 import { z } from 'zod';
 import { config } from '../config.js';
-import { ModelUsage } from '../model-usage.js';
+import { fetchJsonWith } from '../fetch-utils.js';
+import { createLogger } from '../logger.js';
 import { Provider } from '../provider.js';
 import { epochToIso } from '../time-utils.js';
 import type { ProviderAdapter } from '../types.js';
 import { UsageWindow } from '../usage-window.js';
+import { retryOn401 } from './auth-json.js';
 import { CodexAuth } from './codex-auth.js';
 
-const FETCH_TIMEOUT_MS = 5_000;
+const log = createLogger('adapter:codex');
+
 const USAGE_ENDPOINT = 'https://chatgpt.com/backend-api/wham/usage';
+
+const WhamWindowSchema = z.object({
+  used_percent: z.number(),
+  reset_at: z.number(),
+  // Window length identifies what a window actually is: OpenAI temporarily
+  // removed the 5-hour cap (July 2026), so the 5h window may come back in
+  // either slot. Absent on legacy payloads. Extra fields such as
+  // reset_after_seconds are ignored — reset_at stays the source of reset time.
+  limit_window_seconds: z.number().optional(),
+});
+
+type WhamWindow = z.infer<typeof WhamWindowSchema>;
 
 const WhamSchema = z.object({
   plan_type: z.string(),
   rate_limit: z.object({
-    primary_window: z.object({
-      used_percent: z.number(),
-      reset_at: z.number(),
-    }),
-    secondary_window: z.object({
-      used_percent: z.number(),
-      reset_at: z.number(),
-    }),
+    primary_window: WhamWindowSchema,
+    secondary_window: WhamWindowSchema.nullable().optional(),
   }),
   credits: z
     .object({
@@ -31,6 +40,43 @@ const WhamSchema = z.object({
 });
 
 type WhamResponse = z.infer<typeof WhamSchema>;
+
+const SECONDS_PER_HOUR = 3_600;
+
+const WINDOW_SECONDS_5H = 18_000;
+const WINDOW_SECONDS_WEEKLY = 604_800;
+const WINDOW_SECONDS_MONTHLY = 2_592_000;
+
+/** limit_window_seconds → dashboard label for the known window lengths. */
+const WINDOW_LABELS = new Map<number, string>([
+  [WINDOW_SECONDS_5H, '5h'],
+  [WINDOW_SECONDS_WEEKLY, 'weekly'],
+  [WINDOW_SECONDS_MONTHLY, 'monthly'],
+]);
+
+/** Canonical dashboard window order; credits are appended after the sort. */
+const LABEL_ORDER: readonly string[] = ['5h', 'weekly', 'monthly'];
+
+function labelRank(label: string): number {
+  const rank = LABEL_ORDER.indexOf(label);
+
+  return rank === -1 ? LABEL_ORDER.length : rank;
+}
+
+/** Pick the label from the window length, or the legacy slot-based fallback. */
+function labelFor(win: WhamWindow, fallback: string): string {
+  const seconds = win.limit_window_seconds;
+
+  if (seconds == null) {
+    // Legacy payloads carry no window length: primary is weekly, secondary 5h.
+    return fallback;
+  }
+
+  return WINDOW_LABELS.get(seconds) ?? `${Math.round(seconds / SECONDS_PER_HOUR)}h`;
+}
+
+const limitWindow = (win: WhamWindow, fallback: string): UsageWindow =>
+  UsageWindow.fromApi(labelFor(win, fallback), win.used_percent, epochToIso(win.reset_at));
 
 const auth = new CodexAuth();
 
@@ -45,73 +91,53 @@ export class Codex implements ProviderAdapter {
     try {
       token = await auth.getToken();
       fromAuth = true;
-    } catch {
-      // auth.json not found, fall back to env var
-      token = config.openaiCodexAccessToken ?? null;
+    } catch (err) {
+      log.debug({ err }, 'Codex auth.json token unavailable, falling back to env token');
+
+      token = config.OPENAI_CODEX_ACCESS_TOKEN ?? null;
     }
 
     if (!token) {
-      return new Provider(this.id, this.name, 'Not configured', []);
+      return Provider.notConfigured(this.id, this.name);
     }
 
-    try {
-      const data = await this.fetchData(token);
-      const windows = this.buildWins(data);
+    // Token from env var can't be refreshed; token from auth may have been
+    // invalidated after our freshness check — retryOn401 does one force-fresh re-fetch.
+    return await retryOn401(token, fromAuth, auth, (t) => this.fetchProvider(t));
+  }
 
-      return new Provider(this.id, this.name, data.plan_type, [
-        ModelUsage.from(data.plan_type, windows),
-      ]);
-    } catch (err) {
-      // Token from env var can't be refreshed; token from auth may have been
-      // invalidated after our freshness check — do one force-fresh and retry.
-      if (fromAuth && err instanceof Error && /^HTTP 401/.test(err.message)) {
-        auth.clearCache();
+  private async fetchProvider(token: string): Promise<Provider> {
+    const data = await this.fetchData(token);
+    const windows = this.buildWins(data);
 
-        try {
-          const fresh = await auth.getToken();
-          const data = await this.fetchData(fresh);
-          const windows = this.buildWins(data);
-
-          return new Provider(this.id, this.name, data.plan_type, [
-            ModelUsage.from(data.plan_type, windows),
-          ]);
-        } catch {
-          // fall through to throw the original 401
-        }
-      }
-
-      throw err;
-    }
+    return new Provider(this.id, this.name, data.plan_type, [
+      { modelName: data.plan_type, windows },
+    ]);
   }
 
   private async fetchData(token: string): Promise<WhamResponse> {
-    const payload = {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
     };
 
-    const response = await fetch(USAGE_ENDPOINT, payload);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const raw = (await response.json()) as unknown;
+    const raw = await fetchJsonWith(USAGE_ENDPOINT, headers);
 
     return WhamSchema.parse(raw);
   }
 
   private buildWins(data: WhamResponse): UsageWindow[] {
-    const primary = data.rate_limit.primary_window;
     const secondary = data.rate_limit.secondary_window;
 
-    const wins: UsageWindow[] = [
-      UsageWindow.fromApi('5h', primary.used_percent, epochToIso(primary.reset_at)),
-      UsageWindow.fromApi('weekly', secondary.used_percent, epochToIso(secondary.reset_at)),
-    ];
+    const wins: UsageWindow[] = [];
+
+    if (secondary) {
+      wins.push(limitWindow(secondary, '5h'));
+    }
+
+    wins.push(limitWindow(data.rate_limit.primary_window, 'weekly'));
+
+    wins.sort((a, b) => labelRank(a.label) - labelRank(b.label));
 
     if (data.credits?.has_credits && Number(data.credits.balance) > 0) {
       wins.push(

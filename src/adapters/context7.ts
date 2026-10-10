@@ -1,20 +1,23 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { refreshCookiesViaBrowser } from '../browser-cookies.js';
 import { config } from '../config.js';
-import { ModelUsage } from '../model-usage.js';
+import { CHROME_USER_AGENT, FETCH_TIMEOUT_MS } from '../constants.js';
+import { readDataFile, writeDataFile } from '../data-file.js';
+import { createLogger } from '../logger.js';
 import { Provider } from '../provider.js';
 import type { ProviderAdapter } from '../types.js';
 import { UsageWindow } from '../usage-window.js';
 
-const FETCH_TIMEOUT_MS = 5_000;
+const log = createLogger('adapter:context7');
+
 const KEEPALIVE_INTERVAL_MS = 180_000; // 3 minutes
 const HTTP_UNAUTHORIZED = 401;
 const COOKIE_FILE = 'data/context7-cookies.txt';
+const COOKIE_FILE_LABEL = 'cookies';
 const TEAMSPACES_API = 'https://context7.com/api/dashboard/teamspaces';
 const STATS_API = 'https://context7.com/api/dashboard/stats';
 
-const USER_AGENT =
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36';
+const NOT_CONFIGURED_MSG =
+  'Start Chrome with --remote-debugging-port=9222 and log into context7.com, or set CONTEXT7_SESSION_COOKIE';
 
 // Cookie state — persisted to disk so it survives server restarts
 let storedCookies: string | null = null;
@@ -23,30 +26,17 @@ let keepaliveTimer: ReturnType<typeof setTimeout> | null = null;
 /* ── Cookie helpers ────────────────────────────────────── */
 
 function loadCookies(): string | null {
-  // Prefer persisted file over .env config
-  if (existsSync(COOKIE_FILE)) {
-    return readFileSync(COOKIE_FILE, 'utf-8').trim() || null;
-  }
-
-  return config.context7SessionCookie || null;
+  return readDataFile(COOKIE_FILE, config.CONTEXT7_SESSION_COOKIE);
 }
 
 function saveCookies(cookies: string): void {
-  try {
-    const dir = COOKIE_FILE.slice(0, COOKIE_FILE.lastIndexOf('/'));
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-
-    writeFileSync(COOKIE_FILE, cookies, 'utf-8');
-  } catch (err) {
-    console.error('Failed to persist cookies:', err);
-  }
+  writeDataFile(COOKIE_FILE, cookies, COOKIE_FILE_LABEL);
 }
 
 /** Parse a Set-Cookie header value into name=value pair, dropping attributes. */
 function parseSetCookieValue(setCookie: string): string {
   const semi = setCookie.indexOf(';');
+
   return semi === -1 ? setCookie : setCookie.slice(0, semi);
 }
 
@@ -116,7 +106,7 @@ async function keepalive(): Promise<void> {
     const response = await fetch(TEAMSPACES_API, {
       headers: {
         cookie: storedCookies,
-        'user-agent': USER_AGENT,
+        'user-agent': CHROME_USER_AGENT,
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
@@ -124,23 +114,23 @@ async function keepalive(): Promise<void> {
     mergeResponseCookies(response);
 
     if (response.status === HTTP_UNAUTHORIZED) {
-      console.warn('Context7 session expired, trying browser refresh via CDP...');
+      log.warn('Context7 session expired, trying browser refresh via CDP');
 
-      const result = await refreshCookiesViaBrowser(storedCookies);
+      const result = await refreshCookiesViaBrowser();
 
       if (result.ok && result.cookieString) {
         storedCookies = result.cookieString;
         saveCookies(storedCookies);
-        console.info('Context7 session refreshed via', result.mode);
+        log.info({ mode: result.mode }, 'Context7 session refreshed');
       } else if (result.error?.includes('Chrome not found')) {
-        console.warn('CDP unavailable — using cached data. Start Chrome with:');
-        console.warn('  google-chrome --remote-debugging-port=9222');
+        log.warn(
+          'CDP unavailable — using cached data. Start Chrome with: google-chrome --remote-debugging-port=9222',
+        );
       }
     }
   } catch (err) {
-    // Network errors are expected during dev — don't spam logs
     if (err instanceof Error && err.name !== 'AbortError') {
-      console.error('Context7 keepalive failed:', err.message);
+      log.error({ err }, 'Context7 keepalive failed');
     }
   }
 }
@@ -160,20 +150,29 @@ function mergeResponseCookies(response: Response): void {
 /* ── Adapter ───────────────────────────────────────────── */
 
 export class Context7 implements ProviderAdapter {
-  id = 'context7';
-  name = 'Context7';
+  readonly id = 'context7';
+  readonly name = 'Context7';
 
   async fetchUsage(): Promise<Provider> {
-    // Lazy-init: load from file / .env on first call
     if (!storedCookies) {
       storedCookies = loadCookies();
     }
 
+    // Bootstrap via CDP when no persisted/env cookie is available
     if (!storedCookies) {
-      return new Provider(this.id, this.name, 'Not configured', []);
+      const cdpResult = await refreshCookiesViaBrowser();
+
+      if (cdpResult.ok && cdpResult.cookieString) {
+        storedCookies = cdpResult.cookieString;
+        saveCookies(storedCookies);
+        log.info({ mode: cdpResult.mode }, 'Context7 session bootstrapped');
+      }
     }
 
-    // Start background keepalive on first usage
+    if (!storedCookies) {
+      return Provider.notConfigured(this.id, this.name, NOT_CONFIGURED_MSG);
+    }
+
     if (!keepaliveTimer) {
       this.startKeepalive();
     }
@@ -185,13 +184,12 @@ export class Context7 implements ProviderAdapter {
 
     const windows: UsageWindow[] = [];
 
-    // Monthly quota: quotaLimit is the cap, creditBalance is credits consumed
-    if (stats.quotaLimit != null && stats.quotaLimit > 0) {
+    if (typeof stats.quotaLimit === 'number' && stats.quotaLimit > 0) {
       const used = Math.max(0, Math.min(stats.creditBalance, stats.quotaLimit));
+
       windows.push(UsageWindow.fromCounts('monthly', used, stats.quotaLimit, null));
     }
 
-    // Current month aggregate
     const currentMonth = this.currentMonthPrefix();
     const agg = stats.dailyStats
       .filter((d) => d.date.startsWith(currentMonth))
@@ -207,21 +205,22 @@ export class Context7 implements ProviderAdapter {
     if (agg.parseTokens > 0) {
       windows.push(UsageWindow.fromCounts('parse_tokens', agg.parseTokens, agg.parseTokens, null));
     }
+
     if (agg.searchRequests > 0) {
       windows.push(
         UsageWindow.fromCounts('searches', agg.searchRequests, agg.searchRequests, null),
       );
     }
+
     if (agg.fetchDocsRequests > 0) {
       windows.push(
         UsageWindow.fromCounts('fetches', agg.fetchDocsRequests, agg.fetchDocsRequests, null),
       );
     }
 
-    return new Provider(this.id, this.name, plan, [ModelUsage.from('Context7', windows)]);
+    return new Provider(this.id, this.name, plan, [{ modelName: 'Context7', windows }]);
   }
 
-  /** Start background keepalive timer. Idempotent. */
   startKeepalive(): void {
     if (keepaliveTimer) {
       return;
@@ -239,7 +238,6 @@ export class Context7 implements ProviderAdapter {
     }, KEEPALIVE_INTERVAL_MS);
   }
 
-  /** Stop background keepalive timer. */
   stopKeepalive(): void {
     if (keepaliveTimer) {
       clearTimeout(keepaliveTimer);
@@ -251,7 +249,7 @@ export class Context7 implements ProviderAdapter {
     const response = await fetch(TEAMSPACES_API, {
       headers: {
         cookie: cookies,
-        'user-agent': USER_AGENT,
+        'user-agent': CHROME_USER_AGENT,
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
@@ -277,7 +275,7 @@ export class Context7 implements ProviderAdapter {
     const response = await fetch(url, {
       headers: {
         cookie: cookies,
-        'user-agent': USER_AGENT,
+        'user-agent': CHROME_USER_AGENT,
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });

@@ -1,5 +1,9 @@
 # AGENTS.md — Project Rules & Conventions
 
+## Pi-Crew Delegation
+
+**Enforce strict pi-crew delegation for all code modifications; direct edit/write calls are prohibited for core logic changes.** All substantive code changes must be delegated to a subagent via `crew_spawn` — the assistant must not call `edit` or `write` directly on core logic files.
+
 ## Language
 
 **English only.** All code, comments, variable names, commit messages, documentation,
@@ -73,18 +77,6 @@ src/
 │   └── opencode-go.ts    # OpenCode Go adapter
 └── design/themes/        # 10 CSS theme files
 ```
-
-## Dev Server
-
-The dev server is started by the **user**, not the agent:
-
-```bash
-npm run dev        # tsx watch — auto-reloads on file changes
-```
-
-- The agent must **never** kill, restart, or otherwise touch the dev server process.
-- The agent makes code changes; `tsx watch` picks them up automatically.
-- If a port conflict occurs, the user handles it.
 
 ## Conventions
 

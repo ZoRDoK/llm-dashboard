@@ -9,6 +9,9 @@ title = "ai-creds gitleaks config"
     '''node_modules/''',
     '''\.git/''',
     '''data/''',
+    '''dist/''',
+    '''\.pi/''',
+    '''\.pi-subagents/''',
   ]
 
 [[rules]]

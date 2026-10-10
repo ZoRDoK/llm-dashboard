@@ -1,22 +1,35 @@
 import { z } from 'zod';
 import { config } from '../config.js';
-import { ModelUsage } from '../model-usage.js';
+import { fetchAndParse } from '../fetch-utils.js';
+import type { ModelUsage } from '../model-usage.js';
 import { Provider } from '../provider.js';
 import { msToIso } from '../time-utils.js';
 import type { ProviderAdapter } from '../types.js';
 import { UsageWindow } from '../usage-window.js';
 
-const FETCH_TIMEOUT_MS = 5_000;
 const ENDPOINT = 'https://api.minimax.io/v1/api/openplatform/coding_plan/remains';
+
+const MS_PER_MINUTE = 60_000;
+const MS_PER_HOUR = 3_600_000;
+const PERCENT_MAX = 100;
+const STATUS_INACTIVE = 3;
 
 const RemainSchema = z.object({
   model_name: z.string(),
+  start_time: z.number(),
+  end_time: z.number(),
+  remains_time: z.number(),
   current_interval_total_count: z.number(),
   current_interval_usage_count: z.number(),
-  end_time: z.number(),
+  current_interval_status: z.number(),
+  current_interval_remaining_percent: z.number(),
+  weekly_start_time: z.number(),
+  weekly_end_time: z.number(),
+  weekly_remains_time: z.number(),
   current_weekly_total_count: z.number(),
   current_weekly_usage_count: z.number(),
-  weekly_end_time: z.number(),
+  current_weekly_status: z.number(),
+  current_weekly_remaining_percent: z.number(),
 });
 
 const ResponseSchema = z.object({
@@ -29,20 +42,20 @@ const ResponseSchema = z.object({
     .optional(),
 });
 
-type MiniMaxResponse = z.infer<typeof ResponseSchema>;
+type ModelRemain = z.infer<typeof RemainSchema>;
 
 export class MiniMax implements ProviderAdapter {
   id = 'minimax';
   name = 'MiniMax Token Plan';
 
   async fetchUsage(): Promise<Provider> {
-    const apiKey = config.minimaxApiKey;
+    const apiKey = config.MINIMAX_API_KEY;
 
     if (!apiKey) {
-      return new Provider(this.id, this.name, 'Not configured', []);
+      return Provider.notConfigured(this.id, this.name);
     }
 
-    const data = await this.fetchData(apiKey);
+    const data = await fetchAndParse(ENDPOINT, apiKey, ResponseSchema);
 
     if (data.base_resp?.status_code !== 0) {
       throw new Error(data.base_resp?.status_msg ?? 'API error');
@@ -52,94 +65,66 @@ export class MiniMax implements ProviderAdapter {
       throw new Error('No model remains data in API response');
     }
 
-    return new Provider(this.id, this.name, 'Token Plan', ModelsAgg.from(data.model_remains));
-  }
-
-  private async fetchData(apiKey: string): Promise<MiniMaxResponse> {
-    const payload = {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    };
-
-    const response = await fetch(ENDPOINT, payload);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const raw = (await response.json()) as unknown;
-
-    return ResponseSchema.parse(raw);
+    return new Provider(this.id, this.name, 'Token Plan', modelsFrom(data.model_remains));
   }
 }
 
-class ModelsAgg {
-  private constructor() {}
-
-  static from(raw: ModelRemain[]): ModelUsage[] {
-    return raw
-      .sort((a, b) => a.model_name.localeCompare(b.model_name))
-      .map(ModelsAgg.toModel)
-      .filter((m): m is ModelUsage => m !== null);
+/** Format milliseconds into a human-readable remaining time label. */
+function formatRemainingTime(ms: number): string | null {
+  if (ms <= 0) {
+    return null;
   }
 
-  private static toModel(raw: ModelRemain): ModelUsage | null {
-    if (raw.current_interval_total_count <= 0) {
-      return null;
-    }
+  const hours = Math.floor(ms / MS_PER_HOUR);
+  const minutes = Math.floor((ms % MS_PER_HOUR) / MS_PER_MINUTE);
 
-    if (raw.current_interval_usage_count < 0) {
-      throw new Error(`Invalid interval usage count for ${raw.model_name}`);
-    }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m left`;
+  }
 
-    const windows: UsageWindow[] = [];
+  return `${minutes}m left`;
+}
 
-    const intervalUsed = ModelsAgg.usedCount(
-      raw.current_interval_total_count,
-      raw.current_interval_usage_count,
-    );
+function modelsFrom(raw: ModelRemain[]): ModelUsage[] {
+  return raw
+    .sort((a, b) => a.model_name.localeCompare(b.model_name))
+    .map(toModel)
+    .filter((m): m is ModelUsage => m !== null);
+}
+
+function toModel(raw: ModelRemain): ModelUsage | null {
+  // Skip inactive models (not configured / no quota)
+  if (raw.current_interval_status === STATUS_INACTIVE) {
+    return null;
+  }
+
+  const windows: UsageWindow[] = [];
+
+  const intervalUsed = PERCENT_MAX - raw.current_interval_remaining_percent;
+
+  windows.push(
+    UsageWindow.fromApi(
+      '5h',
+      intervalUsed,
+      msToIso(raw.end_time),
+      null,
+      formatRemainingTime(raw.remains_time),
+    ),
+  );
+
+  if (raw.current_weekly_status !== STATUS_INACTIVE) {
+    const weeklyUsed = PERCENT_MAX - raw.current_weekly_remaining_percent;
+
     windows.push(
-      UsageWindow.fromCounts(
-        '5h',
-        intervalUsed,
-        raw.current_interval_total_count,
-        msToIso(raw.end_time),
+      UsageWindow.fromApi(
+        'weekly',
+        weeklyUsed,
+        msToIso(raw.weekly_end_time),
+        null,
+        formatRemainingTime(raw.weekly_remains_time),
       ),
     );
-
-    if (raw.current_weekly_total_count > 0) {
-      const weeklyUsed = ModelsAgg.usedCount(
-        raw.current_weekly_total_count,
-        raw.current_weekly_usage_count,
-      );
-      windows.push(
-        UsageWindow.fromCounts(
-          'weekly',
-          weeklyUsed,
-          raw.current_weekly_total_count,
-          msToIso(raw.weekly_end_time),
-        ),
-      );
-    }
-
-    return ModelUsage.from(raw.model_name, windows);
   }
 
-  private static usedCount(total: number, remaining: number): number {
-    const clamped = Math.min(Math.max(remaining, 0), total);
-    return total - clamped;
-  }
-}
-
-interface ModelRemain {
-  model_name: string;
-  current_interval_total_count: number;
-  current_interval_usage_count: number;
-  end_time: number;
-  current_weekly_total_count: number;
-  current_weekly_usage_count: number;
-  weekly_end_time: number;
+  return { modelName: raw.model_name, windows };
 }

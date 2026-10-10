@@ -1,30 +1,25 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { createLogger } from '../logger.js';
+import {
+  type AuthFile,
+  AuthJsonStore,
+  applyRefreshResponse,
+  type BaseAuthEntry,
+  expandHome,
+  isFresh,
+  type RefreshResponse,
+} from './auth-json.js';
+
+const log = createLogger('adapter:codex');
 
 const AUTH0_TOKEN_URL = 'https://auth0.openai.com/oauth/token';
 
-interface OpenCodeAuthEntry {
+interface OpenCodeAuthEntry extends BaseAuthEntry {
   type: string;
-  access: string;
-  refresh: string;
-  expires: number;
   accountId?: string;
 }
 
-interface OpenCodeAuth {
-  openai?: OpenCodeAuthEntry;
-  'openai-codex'?: OpenCodeAuthEntry;
-  [key: string]: unknown;
-}
-
-interface RefreshResponse {
-  access_token: string;
-  expires_in: number;
-  token_type: string;
-  refresh_token?: string;
-}
-
-const FRESHNESS_BUFFER_MS = 60_000;
-const MS_PER_SECOND = 1_000;
+/** auth.json keys that may hold the OpenAI/Codex OAuth entry, in priority order. */
+const ENTRY_KEYS = ['openai-codex', 'openai'] as const;
 
 function decodeClientId(token: string): string {
   const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
@@ -32,27 +27,19 @@ function decodeClientId(token: string): string {
   return payload.client_id;
 }
 
-function expandHome(path: string): string {
-  if (path.startsWith('~/') && process.env.HOME) {
-    return `${process.env.HOME}/${path.slice(2)}`;
-  }
-
-  return path;
-}
-
 export class CodexAuth {
   private cached: OpenCodeAuthEntry | null = null;
-  private paths: string[];
+  private readonly store: AuthJsonStore;
 
   /**
    * @param authJsonPaths — Priority-ordered list of auth.json file paths to search.
    *                        Defaults to OpenCode and Pi standard paths.
    */
   constructor(authJsonPaths?: string[]) {
-    this.paths = authJsonPaths ?? [
-      expandHome('~/.local/share/opencode/auth.json'),
+    this.store = new AuthJsonStore(authJsonPaths, [
       expandHome('~/.pi/agent/auth.json'),
-    ];
+      expandHome('~/.local/share/opencode/auth.json'),
+    ]);
   }
 
   /**
@@ -62,29 +49,33 @@ export class CodexAuth {
    * Otherwise loads from auth.json files and refreshes if expired.
    */
   async getToken(): Promise<string> {
-    if (this.cached && this.isFresh(this.cached)) {
+    if (this.cached && isFresh(this.cached)) {
       return this.cached.access;
     }
 
-    const auth = this.loadAuth();
-    const entry = auth?.openai ?? auth?.['openai-codex'];
+    for (const auth of this.store.loadAll()) {
+      const entry = readEntry(auth);
 
-    if (!entry) {
-      throw new Error('No OpenAI auth entry found in auth.json');
+      if (!entry) {
+        continue;
+      }
+
+      this.cached = entry;
+
+      if (!isFresh(entry)) {
+        try {
+          this.cached = await this.refresh(entry, auth);
+        } catch (err) {
+          log.debug({ err }, 'Codex token refresh failed, trying next auth entry');
+
+          continue;
+        }
+      }
+
+      return this.cached.access;
     }
 
-    this.cached = entry;
-
-    if (!this.isFresh(entry) && auth) {
-      this.cached = await this.refresh(entry, auth);
-    }
-
-    return this.cached.access;
-  }
-
-  /** Check whether the access token is still valid (expires in 60+ seconds). */
-  private isFresh(entry: OpenCodeAuthEntry): boolean {
-    return Date.now() + FRESHNESS_BUFFER_MS < entry.expires;
+    throw new Error('No OpenAI auth entry found in auth.json');
   }
 
   /** Clear the in-memory cache so the next getToken() re-loads from file. */
@@ -92,23 +83,8 @@ export class CodexAuth {
     this.cached = null;
   }
 
-  /** Try each auth.json path and return the first valid one. */
-  private loadAuth(): OpenCodeAuth | null {
-    for (const path of this.paths) {
-      try {
-        const raw = readFileSync(path, 'utf-8');
-
-        return JSON.parse(raw);
-      } catch {
-        // try next path
-      }
-    }
-
-    return null;
-  }
-
   /** Refresh the access token via Auth0 and persist back to auth.json. */
-  private async refresh(entry: OpenCodeAuthEntry, auth: OpenCodeAuth): Promise<OpenCodeAuthEntry> {
+  private async refresh(entry: OpenCodeAuthEntry, auth: AuthFile): Promise<OpenCodeAuthEntry> {
     const clientId = decodeClientId(entry.access);
 
     const payload = {
@@ -129,45 +105,23 @@ export class CodexAuth {
 
     const data = (await response.json()) as RefreshResponse;
 
-    const updated: OpenCodeAuthEntry = {
-      ...entry,
-      access: data.access_token,
-      expires: Date.now() + data.expires_in * MS_PER_SECOND,
-      refresh: data.refresh_token ?? entry.refresh,
-    };
+    const updated = applyRefreshResponse(entry, data);
 
-    this.persist(updated, auth);
+    this.store.persist(updated, auth, ENTRY_KEYS);
 
     return updated;
   }
+}
 
-  /** Persist updated token back to every auth.json file we successfully read. */
-  private persist(updated: OpenCodeAuthEntry, auth: OpenCodeAuth): void {
-    const written: OpenCodeAuth = { ...auth };
+/** Read the first present OpenAI/Codex entry from an auth.json object. */
+function readEntry(auth: AuthFile): OpenCodeAuthEntry | null {
+  for (const key of ENTRY_KEYS) {
+    const entry = auth[key] as OpenCodeAuthEntry | undefined;
 
-    for (const key of ['openai', 'openai-codex'] as const) {
-      if (written[key]) {
-        written[key] = updated;
-      }
-    }
-
-    const writeErrors: string[] = [];
-
-    for (const path of this.paths) {
-      try {
-        writeFileSync(path, `${JSON.stringify(written, null, 2)}\n`, {
-          mode: 0o600,
-        });
-      } catch (err) {
-        writeErrors.push(`${path}: ${err}`);
-      }
-    }
-
-    if (writeErrors.length === this.paths.length) {
-      console.warn(
-        'Token refreshed but could not persist to any auth.json:',
-        writeErrors.join('; '),
-      );
+    if (entry) {
+      return entry;
     }
   }
+
+  return null;
 }

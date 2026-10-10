@@ -1,4 +1,4 @@
-import { ModelUsage } from './model-usage.js';
+import type { ModelUsage } from './model-usage.js';
 import type { UsageWindow } from './usage-window.js';
 
 export class Provider {
@@ -8,6 +8,8 @@ export class Provider {
     readonly plan: string,
     readonly models: ModelUsage[],
     readonly error?: string,
+    readonly updatedAt?: number,
+    readonly stale?: boolean,
   ) {}
 
   static fromAdapter(
@@ -17,6 +19,11 @@ export class Provider {
     windows: UsageWindow[],
     modelName?: string,
   ): Provider {
-    return new Provider(id, name, plan, [ModelUsage.from(modelName ?? plan, windows)]);
+    return new Provider(id, name, plan, [{ modelName: modelName ?? plan, windows }]);
+  }
+
+  /** Placeholder returned by adapters whose credentials are missing. */
+  static notConfigured(id: string, name: string, error?: string): Provider {
+    return new Provider(id, name, 'Not configured', [], error);
   }
 }

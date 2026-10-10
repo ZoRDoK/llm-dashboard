@@ -1,364 +1,37 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import type { ModelUsage } from './model-usage.js';
+import { MS_PER_DAY } from './constants.js';
+import { clientScript } from './html/client-script.js';
+import { isCompactProvider, renderCompactPanel } from './html/compact-panel.js';
+import { renderHistoryPanel } from './html/history-panel.js';
+import { renderLogsPanel } from './html/logs-panel.js';
+import { renderMetricsPanel } from './html/metrics-panel.js';
+import { THEME_NAMES, tailwindCSS, themeCSS } from './html/themes.js';
+import { renderUrgentPanel } from './html/urgent-panel.js';
+import {
+  errorCard,
+  escapeHtml,
+  groupMiniMaxModels,
+  modelCard,
+  toDateInputValue,
+  updatedLabelSpan,
+} from './html/usage-renderers.js';
 import type { Provider } from './provider.js';
-import type { UsageWindow } from './usage-window.js';
+import { formatElapsed } from './time-utils.js';
+import type { LogEntry, ProviderMetrics, QuotaPeriod } from './types.js';
 
-// ── Load all theme CSS files once at module init ────────────
-const __dirname = import.meta.dirname;
-const THEMES_DIR = resolve(__dirname, '..', 'design', 'themes');
-const THEME_NAMES = [
-  'ocean-depths',
-  'sunset-boulevard',
-  'forest-canopy',
-  'neon-nights',
-  'paper-ink',
-  'arctic-frost',
-  'desert-dunes',
-  'cyberpunk',
-  'zen-garden',
-  'retro-wave',
-];
-
-let themeCSS = '';
-for (const [idx, name] of THEME_NAMES.entries()) {
-  const padded = String(idx + 1).padStart(2, '0');
-  const path = resolve(THEMES_DIR, `theme-${padded}-${name}.css`);
-  try {
-    themeCSS += readFileSync(path, 'utf-8');
-  } catch {
-    console.warn(`Theme file not found: ${path}`);
-  }
-}
-
-// ── Helpers ─────────────────────────────────────────────────
-
-const PERCENT_MAX = 100;
-const LOW_USAGE_THRESHOLD = 50;
-const MEDIUM_USAGE_THRESHOLD = 80;
-const MIN_VISIBLE_PERCENT = 3;
-const FIVE_HOURS = 5;
-const ZERO_PERCENT = 0;
-
-function usageColor(percent: number | null): string {
-  if (percent == null) {
-    return 'bg-theme-bg-tertiary';
-  }
-  if (percent < LOW_USAGE_THRESHOLD) {
-    return 'bg-green-500';
-  }
-  if (percent < MEDIUM_USAGE_THRESHOLD) {
-    return 'bg-yellow-500';
-  }
-  return 'bg-red-500';
-}
-
-function barWidth(percent: number | null): string {
-  if (percent == null || percent <= ZERO_PERCENT) {
-    return '0%';
-  }
-  return `${Math.min(percent, PERCENT_MAX)}%`;
-}
-
-function formatSpend(amount: number | null): string {
-  if (amount == null) {
-    return '';
-  }
-  return `$${amount.toFixed(2)}`;
-}
-
-function formatNumber(n: number | null): string {
-  if (n == null) {
-    return '';
-  }
-  return n.toLocaleString('en');
-}
-
-/** Format milliseconds remaining until a future timestamp. */
-function formatTimeUntil(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) {
-    return '';
-  }
-  if (ms >= MS_PER_DAY) {
-    return `${Math.ceil(ms / MS_PER_DAY)}d`;
-  }
-  if (ms >= MS_PER_HOUR) {
-    return `${Math.ceil(ms / MS_PER_HOUR)}h`;
-  }
-  if (ms >= MS_PER_MINUTE) {
-    return `${Math.ceil(ms / MS_PER_MINUTE)}m`;
-  }
-  return '<1m';
-}
-
-function toDateInputValue(iso: string | undefined): string {
-  if (!iso) {
-    return '';
-  }
-  const date = new Date(iso);
-  if (!Number.isFinite(date.getTime())) {
-    return '';
-  }
-  return date.toISOString().slice(0, 10);
-}
-
-function escapeHtml(text: string | null | undefined): string {
-  if (text == null) {
-    return '';
-  }
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-// ── Reset countdown ring ────────────────────────────────────
-
-const HOURS_PER_DAY = 24;
-const DAYS_PER_WEEK = 7;
-const DAYS_PER_MONTH = 30;
-const MS_PER_HOUR = 3_600_000;
+// ── SVG refresh circle constants ────────────────────────────
 
 const REFRESH_RADIUS = 14;
 const REFRESH_CIRCUMFERENCE = 2 * Math.PI * REFRESH_RADIUS;
 
-const RESET_NEAR_THRESHOLD = 0.85;
-const RESET_MID_THRESHOLD = 0.625;
+// ── Billing constants ───────────────────────────────────────
+
 const BILLING_URGENT_DAYS = 5;
-const MS_PER_DAY = 86_400_000;
 
-const MS_PER_MINUTE = 60_000;
+// ── Sub-renderers ───────────────────────────────────────────
 
-export function formatElapsed(ts: number | null): string {
-  if (ts == null) {
-    return '';
-  }
-
-  const elapsed = Date.now() - ts;
-
-  if (elapsed >= MS_PER_DAY) {
-    return `${Math.floor(elapsed / MS_PER_DAY)}d`;
-  }
-
-  if (elapsed >= MS_PER_HOUR) {
-    return `${Math.floor(elapsed / MS_PER_HOUR)}h`;
-  }
-
-  if (elapsed >= MS_PER_MINUTE) {
-    return `${Math.floor(elapsed / MS_PER_MINUTE)}m`;
-  }
-
-  return 'now';
-}
-
-/** Map window label to approximate cycle duration in ms. */
-function cycleMs(label: string): number | null {
-  switch (label) {
-    case '5h':
-      return FIVE_HOURS * MS_PER_HOUR;
-    case 'today':
-    case 'daily':
-      return HOURS_PER_DAY * MS_PER_HOUR;
-    case 'week':
-    case 'weekly':
-      return DAYS_PER_WEEK * HOURS_PER_DAY * MS_PER_HOUR;
-    case 'month':
-    case 'monthly':
-      return DAYS_PER_MONTH * HOURS_PER_DAY * MS_PER_HOUR;
-    default:
-      return null;
-  }
-}
-
-const SEGMENT_COUNT = 8;
-
-/**
- * Render one of 8 quarter-block characters based on elapsed time.
- * ▖=12% ▗=25% ▘=37% ▙=50% ▚=62% ▛=75% ▜=87% █=100%
- */
-function renderResetRing(label: string, resetAt: string | null): string {
-  if (!resetAt) {
-    return '';
-  }
-  const cycle = cycleMs(label);
-  if (!cycle) {
-    return '';
-  }
-  const remaining = new Date(resetAt).getTime() - Date.now();
-  if (!Number.isFinite(remaining) || remaining <= 0) {
-    return '';
-  }
-
-  // progress = 0 when just reset, = 1 when about to reset
-  const progress = Math.min(1, Math.max(0, 1 - remaining / cycle));
-  const idx = Math.min(SEGMENT_COUNT - 1, Math.floor(progress * SEGMENT_COUNT));
-
-  // Quarter-block characters: increasing fill left-to-right
-  const blocks = ['▖', '▗', '▘', '▙', '▚', '▛', '▜', '█'];
-  const block = blocks[idx];
-
-  // Color: green when close to reset (good), yellow mid, red when far (bad)
-  let colorClass: string;
-  if (progress >= RESET_NEAR_THRESHOLD) {
-    colorClass = 'text-green-500';
-  } else if (progress >= RESET_MID_THRESHOLD) {
-    colorClass = 'text-yellow-500';
-  } else {
-    colorClass = 'text-red-500/60';
-  }
-
-  return `<span class="font-mono text-xs ${colorClass}">${block}</span>`;
-}
-
-function buildUsageParts(window: UsageWindow): string {
-  if (window.usedPercent == null) {
-    return '';
-  }
-
-  const parts: string[] = [`${window.usedPercent.toFixed(1)}% used`];
-
-  if (window.remainingPercent != null) {
-    parts.push(`${window.remainingPercent.toFixed(1)}% left`);
-  }
-
-  if (window.used != null && window.total != null) {
-    parts.push(`${formatNumber(window.used)}/${formatNumber(window.total)}`);
-  }
-
-  return parts.join(' · ');
-}
-
-function renderUsageMiddle(window: UsageWindow): string {
-  if (window.usedPercent == null) {
-    return '';
-  }
-
-  const usageClass =
-    window.usedPercent === ZERO_PERCENT ? 'text-theme-text' : 'text-theme-text-secondary';
-  const needsMinWidth =
-    window.usedPercent > ZERO_PERCENT && window.usedPercent < MIN_VISIBLE_PERCENT;
-  const minWidthClass = needsMinWidth ? ' min-w-1' : '';
-
-  return `
-      <div class="flex-1 min-w-0">
-        <div class="flex justify-between text-xs ${usageClass} mb-0.5">
-          <span>${buildUsageParts(window)}</span>
-          <span></span>
-        </div>
-        <div class="w-full bg-theme-bg-tertiary rounded h-1.5">
-          <div class="h-1.5 rounded ${usageColor(window.usedPercent)}${minWidthClass}" style="width:${barWidth(window.usedPercent)}"></div>
-        </div>
-      </div>`;
-}
-
-function renderWindowMiddle(window: UsageWindow): string {
-  const usageMiddle = renderUsageMiddle(window);
-  if (usageMiddle) {
-    return usageMiddle;
-  }
-
-  if (window.spend != null) {
-    const spendClass =
-      window.spend > ZERO_PERCENT ? 'text-theme-spend font-bold' : 'text-theme-text-tertiary';
-    return `<span class="text-xs font-mono flex-1 ${spendClass}">${formatSpend(window.spend)}</span>`;
-  }
-
-  if (window.valueLabel) {
-    return `<span class="text-xs text-theme-text-secondary truncate flex-1">${escapeHtml(window.valueLabel)}</span>`;
-  }
-
-  return '<span class="flex-1"></span>';
-}
-
-function renderWindowMeta(window: UsageWindow): string {
-  const resetRing = renderResetRing(window.label, window.resetAt);
-  if (!resetRing) {
-    return '<span></span>';
-  }
-
-  const remaining = window.resetAt ? new Date(window.resetAt).getTime() - Date.now() : null;
-  const timeText = remaining == null ? '' : formatTimeUntil(remaining);
-
-  return `<span class="inline-flex items-center gap-1.5 min-w-[4rem]">${resetRing}${timeText}</span>`;
-}
-
-function windowRow(window: UsageWindow): string {
-  const label = `<span class="text-xs font-semibold text-theme-text-secondary uppercase tracking-wider">${escapeHtml(window.label)}</span>`;
-  const middle = renderWindowMiddle(window);
-  const meta = renderWindowMeta(window);
-
-  return `
-    <div class="grid grid-cols-[4.5rem_1fr_auto] gap-1.5 items-start py-1 px-1.5 bg-theme-bg-tertiary rounded">
-      ${label}
-      ${middle}
-      ${meta}
-    </div>`;
-}
-
-// ── Model grouping for MiniMax ──────────────────────────────
-
-interface ModelGroup {
-  main: ModelUsage[];
-  extra: ModelUsage[];
-}
-
-function groupMiniMaxModels(models: ModelUsage[]): ModelGroup {
-  const main: ModelUsage[] = [];
-  const extra: ModelUsage[] = [];
-
-  for (const m of models) {
-    const name = m.modelName;
-
-    if (name.startsWith('coding-plan')) {
-      continue;
-    }
-
-    if (name.startsWith('MiniMax-M') || name === 'image-01') {
-      main.push(m);
-      continue;
-    }
-
-    extra.push(m);
-  }
-
-  return { main, extra };
-}
-
-function modelCard(m: ModelUsage): string {
-  if (m.windows.length === 0) {
-    return '';
-  }
-
-  return `
-    <div class="bg-theme-bg-secondary rounded-theme-md p-3 border border-theme-border mb-3 hover:shadow-theme-md hover:border-theme-accent/30 transition-all duration-theme">
-      <div class="flex items-center justify-between mb-2">
-        <span class="text-sm font-mono font-medium text-theme-text">${escapeHtml(m.modelName)}</span>
-      </div>
-      <div class="space-y-1">${m.windows.map(windowRow).join('')}</div>
-    </div>`;
-}
-
-function errorCard(provider: Provider): string {
-  return `
-    <div class="bg-theme-bg-secondary rounded-theme-md p-4 border border-theme-danger mb-4 shadow-theme-sm hover:shadow-theme-md transition-all duration-theme focus-within:border-theme-accent/50">
-      <h2 class="text-lg font-bold text-theme-text mb-3">${escapeHtml(provider.name)}</h2>
-      <div class="bg-[var(--theme-danger)]/10 rounded-theme-md p-3">
-        <div class="text-theme-danger text-sm">${escapeHtml(provider.error)}</div>
-      </div>
-    </div>`;
-}
-
-// ── Main render ─────────────────────────────────────────────
-
-export function renderDashboard(
-  providers: Provider[],
-  lastUpdated: number | null,
-  billingOverrides: Record<string, string>,
-): string {
-  // Max usage percent across all providers for color logic
+function computeMaxUsage(providers: Provider[]): number {
   let maxUsage = 0;
+
   for (const p of providers) {
     for (const m of p.models) {
       for (const w of m.windows) {
@@ -369,67 +42,80 @@ export function renderDashboard(
     }
   }
 
-  const rows = providers
-    .map((p) => {
-      if (p.error) {
-        return errorCard(p);
-      }
+  return maxUsage;
+}
 
-      const isMiniMax = p.id === 'minimax';
+function renderBillingTag(billingEnd: string | undefined): string {
+  if (!billingEnd) {
+    return '';
+  }
 
-      let modelsHtml: string;
+  const msLeft = new Date(billingEnd).getTime() - Date.now();
+  const daysLeft = msLeft / MS_PER_DAY;
+  const urgent = daysLeft <= BILLING_URGENT_DAYS;
+  const colorClass = urgent
+    ? 'text-red-500 border-red-500/30'
+    : 'text-theme-text-tertiary border-theme-border-light';
+  const dateText = new Date(billingEnd).toLocaleDateString('en', {
+    month: 'short',
+    day: 'numeric',
+  });
 
-      if (isMiniMax) {
-        const { main, extra } = groupMiniMaxModels(p.models);
+  return `<span class="text-xs font-normal border rounded-full px-1.5 py-0.5 ml-2 ${colorClass}">Billing: ${dateText}</span>`;
+}
 
-        const mainHtml = main.map((m) => modelCard(m)).join('');
+function renderUpdatedLabel(p: Provider): string {
+  if (p.updatedAt == null) {
+    return '';
+  }
 
-        let extraHtml = '';
-        if (extra.length > 0) {
-          const extraCards = extra.map((m) => modelCard(m)).join('');
-          extraHtml = `
-          <details class="mt-2 group">
-            <summary class="text-xs text-theme-accent cursor-pointer hover:underline transition-theme duration-theme list-none marker:hidden">
-              Show all models
-            </summary>
-            ${extraCards}
-          </details>`;
-        }
+  const stalePill = p.stale
+    ? `<span class="text-[0.65rem] font-normal border rounded-full px-1.5 py-0.5 text-theme-warning border-theme-warning/40 not-italic">stale</span>`
+    : '';
 
-        modelsHtml = mainHtml + extraHtml;
-      } else {
-        modelsHtml = p.models.map((m) => modelCard(m)).join('');
-      }
+  return updatedLabelSpan(
+    p.updatedAt,
+    'absolute top-2 right-2 inline-flex items-center gap-1 text-[0.65rem] text-theme-text-tertiary/40 italic',
+    stalePill,
+  );
+}
 
-      const billingEnd = billingOverrides[p.id];
-      let billingTag = '';
+function renderProviderCard(p: Provider, billingEnd: string | undefined): string {
+  if (p.error) {
+    return errorCard(p);
+  }
 
-      if (billingEnd) {
-        const msLeft = new Date(billingEnd).getTime() - Date.now();
-        const daysLeft = msLeft / MS_PER_DAY;
-        const urgent = daysLeft <= BILLING_URGENT_DAYS;
+  const isMiniMax = p.id === 'minimax';
 
-        billingTag = `<span class="text-xs font-normal border rounded-full px-1.5 py-0.5 ml-2 ${urgent ? 'text-red-500 border-red-500/30' : 'text-theme-text-tertiary border-theme-border-light'}">Billing: ${new Date(billingEnd).toLocaleDateString('en', { month: 'short', day: 'numeric' })}</span>`;
-      }
+  let modelsHtml: string;
 
-      return `
-      <div class="bg-theme-bg-secondary rounded-theme-md p-4 border border-theme-border break-inside-avoid mb-4 shadow-theme-md transition-theme duration-theme">
+  if (isMiniMax) {
+    const { main } = groupMiniMaxModels(p.models);
+
+    modelsHtml = main.map((m) => modelCard(m)).join('');
+  } else {
+    modelsHtml = p.models.map((m) => modelCard(m)).join('');
+  }
+
+  const billingTag = renderBillingTag(billingEnd);
+
+  const updatedLabel = renderUpdatedLabel(p);
+
+  return `
+      <div class="relative bg-theme-bg-secondary rounded-theme-md p-4 border border-theme-border break-inside-avoid mb-4 shadow-theme-md transition-theme duration-theme">
+        ${updatedLabel}
         <h2 class="text-lg font-bold text-theme-text mb-3">
           ${escapeHtml(p.name)}
-          <span class="text-xs font-normal text-theme-text px-1.5 py-0.5 rounded-full bg-theme-bg-tertiary border border-theme-border ml-2">${escapeHtml(p.plan)}</span>
           ${billingTag}
         </h2>
         <div>
           ${modelsHtml}
         </div>
       </div>`;
-    })
-    .join('');
+}
 
-  const settingsRows = providers
-    .map((p) => {
-      const inputValue = toDateInputValue(billingOverrides[p.id]);
-      return `
+function renderSettingsRow(p: Provider, inputValue: string): string {
+  return `
       <div class="grid grid-cols-1 md:grid-cols-[200px_1fr_auto] gap-2 items-center p-3 rounded-theme-sm bg-theme-bg-tertiary border border-theme-border" data-provider-id="${escapeHtml(p.id)}">
         <div class="text-sm text-theme-text">${escapeHtml(p.name)}</div>
         <input
@@ -442,65 +128,38 @@ export function renderDashboard(
         <button
           type="button"
           class="px-2 py-1.5 text-xs rounded-theme-sm bg-theme-bg-secondary text-theme-text-secondary border border-theme-border hover:bg-theme-bg"
-          onclick="clearBillingDate('${p.id}')"
+          onclick="clearBillingDate('${escapeHtml(p.id)}')"
         >
           Clear
         </button>
       </div>`;
-    })
-    .join('');
+}
 
+function renderArchiveToggle(p: Provider, archived: boolean): string {
+  return `<div class="flex items-center justify-between p-3 rounded-theme-sm bg-theme-bg-tertiary border border-theme-border">
+          <span class="text-sm text-theme-text">${escapeHtml(p.name)}</span>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" class="archive-toggle sr-only peer" data-provider-id="${escapeHtml(p.id)}" ${archived ? 'checked' : ''} onchange="toggleArchive('${escapeHtml(p.id)}')">
+            <span class="text-xs text-theme-text-secondary mr-2">Archive</span>
+            <div class="relative w-9 h-5 bg-theme-bg rounded-full peer peer-checked:bg-theme-accent peer-focus:ring-2 peer-focus:ring-theme-accent/30 after:content-[''] after:absolute after:top-0.5 after:start-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+          </label>
+        </div>`;
+}
+
+// ── Page sections ───────────────────────────────────────────
+
+function documentHead(): string {
   return `<!DOCTYPE html>
 <html lang="en" data-theme="ocean-depths">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Creds</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            theme: {
-              bg: 'var(--theme-bg)',
-              'bg-secondary': 'var(--theme-bg-secondary)',
-              'bg-tertiary': 'var(--theme-bg-tertiary)',
-              text: 'var(--theme-text)',
-              'text-secondary': 'var(--theme-text-secondary)',
-              'text-tertiary': 'var(--theme-text-tertiary)',
-              accent: 'var(--theme-accent)',
-              'accent-hover': 'var(--theme-accent-hover)',
-              'accent-text': 'var(--theme-accent-text)',
-              border: 'var(--theme-border)',
-              'border-light': 'var(--theme-border-light)',
-              success: 'var(--theme-success)',
-              warning: 'var(--theme-warning)',
-              danger: 'var(--theme-danger)',
-              spend: 'var(--theme-spend)',
-            }
-          },
-          borderRadius: {
-            'theme-sm': 'var(--theme-radius-sm)',
-            'theme-md': 'var(--theme-radius-md)',
-            'theme-lg': 'var(--theme-radius-lg)',
-          },
-          boxShadow: {
-            'theme-sm': 'var(--theme-shadow-sm)',
-            'theme-md': 'var(--theme-shadow-md)',
-            'theme-lg': 'var(--theme-shadow-lg)',
-            'theme-glow': 'var(--theme-shadow-glow)',
-          },
-          transitionDuration: {
-            'theme': 'var(--theme-transition-speed)',
-          },
-          transitionTimingFunction: {
-            'theme': 'var(--theme-transition-easing)',
-          },
-        }
-      }
-    }
-  </script>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%20width%3D%2232%22%20height%3D%2232%22%3E%3Ccircle%20cx%3D%2216%22%20cy%3D%2216%22%20r%3D%2215%22%20fill%3D%22%23000000%22%2F%3E%3Ctext%20x%3D%2216%22%20y%3D%2222%22%20text-anchor%3D%22middle%22%20font-family%3D%22monospace%2C%20Courier%20New%22%20font-weight%3D%22700%22%20font-size%3D%2219%22%20fill%3D%22%23ffffff%22%3EAI%3C%2Ftext%3E%3Ctext%20x%3D%2231%22%20y%3D%2232%22%20text-anchor%3D%22end%22%20font-family%3D%22monospace%2C%20Courier%20New%22%20font-weight%3D%22700%22%20font-size%3D%2216%22%20fill%3D%22%2322c55e%22%3E%24%3C%2Ftext%3E%3C%2Fsvg%3E">
+  <style>
+    /* ── Locally built Tailwind utilities (design/tailwind.css, no CDN) ── */
+    ${tailwindCSS}
+  </style>
   <style>
     /* ── Inlined theme definitions ── */
     ${themeCSS}
@@ -528,53 +187,98 @@ export function renderDashboard(
     }
 
   </style>
-</head>
-<body class="bg-theme-bg text-theme-text min-h-screen theme-transition">
-  <div class="max-w-5xl mx-auto px-4 py-8">
-    <div class="flex flex-col gap-3 mb-6">
-      <div class="flex items-center justify-between">
+</head>`;
+}
+
+function dashboardHeader(lastUpdated: number | null, maxUsage: number): string {
+  return `    <!-- Header: title, tabs, and controls on one row -->
+    <div class="flex items-center justify-between gap-4 mb-6">
+      <div class="flex items-center gap-4">
         <h1 class="text-2xl font-bold text-theme-text">AI Creds</h1>
-        <div id="dashboard-controls" class="flex items-center gap-3 h-8">
-          <svg id="refresh-circle" class="refresh-circle normal"
-               width="26" height="26" viewBox="0 0 36 36"
-               data-updated="${lastUpdated ?? ''}"
-               data-max-usage="${maxUsage}">
-            <circle class="track" cx="18" cy="18" r="14" fill="none" stroke-width="3"/>
-            <circle class="progress" cx="18" cy="18" r="14" fill="none" stroke-width="3"
-                    stroke-linecap="round"
-                    stroke-dasharray="${REFRESH_CIRCUMFERENCE} ${REFRESH_CIRCUMFERENCE}"
-                    stroke-dashoffset="${REFRESH_CIRCUMFERENCE}"
-                    transform="rotate(-90 18 18)"/>
-          </svg>
-          <span id="last-updated-time" class="text-xs text-theme-text-secondary font-mono tabular-nums w-16 text-right" data-updated="${lastUpdated ?? ''}">${formatElapsed(lastUpdated)}</span>
-          <button onclick="ThemeManager.rotate()"
-            class="p-1.5 rounded-theme-sm bg-theme-bg-tertiary hover:bg-theme-bg-secondary transition-theme duration-theme"
-            title="Switch theme (Ctrl+T)">
-            <svg class="w-4 h-4 text-theme-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4.098 19.902a3.75 3.75 0 005.304 0l6.401-6.402M6.75 21A3.75 3.75 0 013 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 003.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l2.88-2.88c.438-.439 1.15-.439 1.59 0l3.712 3.713c.44.44.44 1.152 0 1.59l-2.879 2.88M6.75 17.25h.008v.008H6.75v-.008z" />
-            </svg>
-          </button>
-          <button id="refresh-btn" onclick="refresh()"
-            class="px-4 py-1.5 bg-theme-accent hover:bg-theme-accent-hover text-theme-accent-text rounded-theme-sm text-sm transition-theme duration-theme flex items-center gap-2 focus:ring-2 focus:ring-theme-accent focus:outline-none">
-            <span id="refresh-spinner" class="hidden">⟳</span>
-            <span>Refresh</span>
-          </button>
+        <div class="inline-flex rounded-theme-sm bg-theme-bg-tertiary border border-theme-border p-1 w-fit">
+          <button id="tab-dashboard-btn" onclick="showTab('dashboard')" class="tab-btn px-3 py-1.5 text-sm rounded-theme-sm bg-theme-accent text-theme-accent-text transition-theme duration-theme">Dashboard</button>
+          <button id="tab-settings-btn" onclick="showTab('settings')" class="tab-btn px-3 py-1.5 text-sm rounded-theme-sm text-theme-text-secondary hover:bg-theme-bg-secondary/50 hover:text-theme-text transition-theme duration-theme">Settings</button>
+          <button id="tab-history-btn" onclick="showTab('history')" class="tab-btn px-3 py-1.5 text-sm rounded-theme-sm text-theme-text-secondary hover:bg-theme-bg-secondary/50 hover:text-theme-text transition-theme duration-theme">History</button>
+          <button id="tab-metrics-btn" onclick="showTab('metrics')" class="tab-btn px-3 py-1.5 text-sm rounded-theme-sm text-theme-text-secondary hover:bg-theme-bg-secondary/50 hover:text-theme-text transition-theme duration-theme">Metrics</button>
+          <a href="/p-charts" title="Pi token usage charts" class="px-3 py-1.5 text-sm rounded-theme-sm text-theme-text-secondary hover:bg-theme-bg-secondary/50 hover:text-theme-text transition-theme duration-theme">P Charts</a>
         </div>
       </div>
-
-      <div class="inline-flex rounded-theme-sm bg-theme-bg-tertiary border border-theme-border p-1 w-fit">
-        <button id="tab-dashboard-btn" onclick="showTab('dashboard')" class="tab-btn px-3 py-1.5 text-sm rounded-theme-sm bg-theme-accent text-theme-accent-text">Dashboard</button>
-        <button id="tab-settings-btn" onclick="showTab('settings')" class="tab-btn px-3 py-1.5 text-sm rounded-theme-sm text-theme-text-secondary hover:bg-theme-bg-secondary/50 hover:text-theme-text transition-theme duration-theme">Settings</button>
+      <div id="dashboard-controls" class="flex items-center gap-3 h-8">
+        <svg id="refresh-circle" class="refresh-circle normal"
+             width="26" height="26" viewBox="0 0 36 36"
+             data-updated="${lastUpdated ?? ''}"
+             data-max-usage="${maxUsage}">
+          <circle class="track" cx="18" cy="18" r="14" fill="none" stroke-width="3"/>
+          <circle class="progress" cx="18" cy="18" r="14" fill="none" stroke-width="3"
+                  stroke-linecap="round"
+                  stroke-dasharray="${REFRESH_CIRCUMFERENCE} ${REFRESH_CIRCUMFERENCE}"
+                  stroke-dashoffset="${REFRESH_CIRCUMFERENCE}"
+                  transform="rotate(-90 18 18)"/>
+        </svg>
+        <span id="last-updated-time" class="text-xs text-theme-text-secondary font-mono tabular-nums w-16 text-right" data-updated="${lastUpdated ?? ''}">${formatElapsed(lastUpdated)}</span>
+        <button onclick="ThemeManager.rotate()"
+          class="p-1.5 rounded-theme-sm bg-theme-bg-tertiary hover:bg-theme-bg-secondary transition-theme duration-theme"
+          title="Switch theme (Ctrl+T)">
+          <svg class="w-4 h-4 text-theme-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4.098 19.902a3.75 3.75 0 005.304 0l6.401-6.402M6.75 21A3.75 3.75 0 013 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 003.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l2.88-2.88c.438-.439 1.15-.439 1.59 0l3.712 3.713c.44.44.44 1.152 0 1.59l-2.879 2.88M6.75 17.25h.008v.008H6.75v-.008z" />
+          </svg>
+        </button>
+        <button id="refresh-btn" onclick="refresh()"
+          class="px-4 py-1.5 bg-theme-accent hover:bg-theme-accent-hover text-theme-accent-text rounded-theme-sm text-sm transition-theme duration-theme flex items-center gap-2 focus:ring-2 focus:ring-theme-accent focus:outline-none">
+          <span id="refresh-spinner" class="hidden">⟳</span>
+          <span>Refresh</span>
+        </button>
       </div>
-    </div>
+    </div>`;
+}
 
-    <div id="tab-dashboard" class="tab-panel">
+function responsivePanels(urgentPanel: string, compactPanel: string): string {
+  const stacked =
+    urgentPanel || compactPanel
+      ? `<div class="xl:hidden flex flex-col sm:flex-row gap-4 mb-4">
+      <div class="flex-1 min-w-0">${urgentPanel}</div>
+      <div class="flex-1 min-w-0">${compactPanel}</div>
+    </div>`
+      : '';
+
+  const urgentAside = urgentPanel
+    ? `<aside class="hidden xl:block fixed left-4 top-28 w-56 pointer-events-auto">${urgentPanel}</aside>`
+    : '';
+  const compactAside = compactPanel
+    ? `<aside class="hidden xl:block fixed right-4 top-28 w-56 pointer-events-auto">${compactPanel}</aside>`
+    : '';
+
+  return `    <!-- Mobile/tablet panels: stacked above dashboard on small screens -->
+    ${stacked}
+
+    <!-- Floating panels on wide screens; they do not consume dashboard columns -->
+    ${urgentAside}
+    ${compactAside}`;
+}
+
+function dashboardTab(rows: string, archivedCount: number, archivedRows: string): string {
+  const archiveDetails =
+    archivedCount > 0
+      ? `<details class="mt-6 bg-theme-bg-secondary rounded-theme-md border border-theme-border shadow-theme-sm">
+      <summary class="px-4 py-3 cursor-pointer text-sm font-semibold text-theme-text-secondary hover:text-theme-text transition-theme duration-theme select-none">Archive (${archivedCount})</summary>
+      <div class="px-4 pb-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          ${archivedRows}
+        </div>
+      </div>
+    </details>`
+      : '';
+
+  return `    <div id="tab-dashboard" class="tab-panel">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="dashboard">
         ${rows}
       </div>
-    </div>
+      ${archiveDetails}
+    </div>`;
+}
 
-    <div id="tab-settings" class="tab-panel hidden">
+function settingsTab(settingsRows: string, archiveToggles: string): string {
+  return `    <div id="tab-settings" class="tab-panel hidden">
       <div class="bg-theme-bg-secondary rounded-theme-md p-4 border border-theme-border shadow-theme-md">
         <h2 class="text-lg font-bold text-theme-text mb-1">Billing dates</h2>
         <p class="text-sm text-theme-text-secondary mb-3">Set manual billing end dates for providers.</p>
@@ -584,248 +288,94 @@ export function renderDashboard(
           <span id="settings-status" class="text-xs text-theme-text-tertiary"></span>
         </div>
       </div>
+      <div class="bg-theme-bg-secondary rounded-theme-md p-4 border border-theme-border shadow-theme-md mt-4">
+        <h2 class="text-lg font-bold text-theme-text mb-1">Archive</h2>
+        <p class="text-sm text-theme-text-secondary mb-3">Hide providers from the main dashboard.</p>
+        <div class="space-y-2">
+          ${archiveToggles}
+        </div>
+      </div>
+    </div>`;
+}
+
+function dataTabs(
+  historyPanel: string,
+  metricsPanel: string,
+  logsPanel: string,
+  watchdogPanel = '',
+): string {
+  return `    <div id="tab-history" class="tab-panel hidden">
+      <h2 class="text-lg font-bold text-theme-text mb-3">Quota history</h2>
+      <div id="history-panel">${historyPanel}</div>
     </div>
+
+    <div id="tab-metrics" class="tab-panel hidden">
+      <h2 class="text-lg font-bold text-theme-text mb-3">Metrics</h2>
+      <div id="metrics-panel">${metricsPanel}</div>
+      <h2 class="text-lg font-bold text-theme-text mb-3 mt-6">Logs</h2>
+      <div id="logs-panel">${logsPanel}</div>
+      <h2 class="text-lg font-bold text-theme-text mb-3 mt-6">Watchdog</h2>
+      <div id="watchdog-panel">${watchdogPanel}</div>
+    </div>`;
+}
+
+// ── Main render ─────────────────────────────────────────────
+
+export function renderDashboard(
+  providers: Provider[],
+  lastUpdated: number | null,
+  billingOverrides: Record<string, string>,
+  archiveSet: Set<string> = new Set(),
+  metrics: ProviderMetrics[] = [],
+  logs: LogEntry[] = [],
+  history: QuotaPeriod[] = [],
+  watchdogPanel = '',
+): string {
+  const maxUsage = computeMaxUsage(providers);
+
+  const activeProviders = providers.filter((p) => !archiveSet.has(p.id));
+  const archivedProviders = providers.filter((p) => archiveSet.has(p.id));
+
+  const mainProviders = activeProviders.filter((p) => !isCompactProvider(p));
+  const rows = mainProviders.map((p) => renderProviderCard(p, billingOverrides[p.id])).join('');
+
+  const settingsRows = mainProviders
+    .map((p) => renderSettingsRow(p, toDateInputValue(billingOverrides[p.id])))
+    .join('');
+
+  const archivedRows = archivedProviders
+    .map((p) => renderProviderCard(p, billingOverrides[p.id]))
+    .join('');
+
+  const archiveToggles = providers
+    .map((p) => renderArchiveToggle(p, archiveSet.has(p.id)))
+    .join('');
+
+  const urgentPanel = renderUrgentPanel(mainProviders);
+  const compactPanel = renderCompactPanel(activeProviders);
+
+  return `${documentHead()}
+<body class="bg-theme-bg text-theme-text min-h-screen theme-transition">
+  <div class="max-w-5xl mx-auto px-4 py-8">
+${dashboardHeader(lastUpdated, maxUsage)}
+
+${responsivePanels(urgentPanel, compactPanel)}
+
+${dashboardTab(rows, archivedProviders.length, archivedRows)}
+
+${settingsTab(settingsRows, archiveToggles)}
+
+${dataTabs(
+  renderHistoryPanel(history),
+  renderMetricsPanel(metrics),
+  renderLogsPanel(logs),
+  watchdogPanel,
+)}
 
     <div id="status" class="mt-4 text-sm text-theme-text-tertiary text-center"></div>
   </div>
   <script>
-    // ── Theme Manager ────────────────────────────────────────
-    const ThemeManager = {
-      themes: ${JSON.stringify(THEME_NAMES)},
-      current: 0,
-
-      init() {
-        const saved = localStorage.getItem('ai-creds-theme');
-        const idx = saved ? this.themes.indexOf(saved) : 0;
-        this.setTheme(idx >= 0 ? idx : 0);
-      },
-
-      setTheme(index) {
-        this.current = ((index % this.themes.length) + this.themes.length) % this.themes.length;
-        const name = this.themes[this.current];
-        document.documentElement.setAttribute('data-theme', name);
-        localStorage.setItem('ai-creds-theme', name);
-        this.updateStatus();
-      },
-
-      rotate() {
-        this.setTheme(this.current + 1);
-      },
-
-      updateStatus() {
-        const el = document.getElementById('status');
-        if (el) {
-          el.textContent = 'Theme: ' + this.themes[this.current].replace(/-/g, ' ');
-          el.classList.add('opacity-100');
-          setTimeout(() => el.classList.remove('opacity-100'), 1500);
-        }
-      }
-    };
-
-    // Hotkey: Ctrl+T / Cmd+T
-    document.addEventListener('keydown', function(e) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 't') {
-        e.preventDefault();
-        ThemeManager.rotate();
-      }
-    });
-
-    ThemeManager.init();
-
-    // ── Tabs ───────────────────────────────────────────────
-    function showTab(tabName) {
-      const dashboardTab = document.getElementById('tab-dashboard');
-      const settingsTab = document.getElementById('tab-settings');
-      const dashboardBtn = document.getElementById('tab-dashboard-btn');
-      const settingsBtn = document.getElementById('tab-settings-btn');
-
-      if (!dashboardTab || !settingsTab || !dashboardBtn || !settingsBtn) return;
-
-      const isDashboard = tabName === 'dashboard';
-      dashboardTab.classList.toggle('hidden', !isDashboard);
-      settingsTab.classList.toggle('hidden', isDashboard);
-
-      dashboardBtn.classList.toggle('bg-theme-accent', isDashboard);
-      dashboardBtn.classList.toggle('text-theme-accent-text', isDashboard);
-      dashboardBtn.classList.toggle('text-theme-text-secondary', !isDashboard);
-
-      settingsBtn.classList.toggle('bg-theme-accent', !isDashboard);
-      settingsBtn.classList.toggle('text-theme-accent-text', !isDashboard);
-      settingsBtn.classList.toggle('text-theme-text-secondary', isDashboard);
-    }
-
-    function markBillingDirty(providerId) {
-      const row = document.querySelector('[data-provider-id="' + providerId + '"]');
-      if (row) row.dataset.dirty = 'true';
-    }
-
-    function clearBillingDate(providerId) {
-      const row = document.querySelector('[data-provider-id="' + providerId + '"]');
-      if (!row) return;
-      const input = row.querySelector('.billing-date-input');
-      if (input) {
-        input.value = '';
-        row.dataset.dirty = 'true';
-      }
-    }
-
-    async function saveBillingSettings() {
-      const status = document.getElementById('settings-status');
-      const saveBtn = document.getElementById('save-settings-btn');
-      const rows = document.querySelectorAll('[data-provider-id]');
-
-      const billingOverrides = {};
-      for (const row of rows) {
-        const providerId = row.getAttribute('data-provider-id');
-        const input = row.querySelector('.billing-date-input');
-        if (!providerId || !input) continue;
-
-        // Only include providers the user actually modified
-        if (row.dataset.dirty !== 'true') continue;
-
-        const raw = String(input.value || '').trim();
-        if (!raw) {
-          continue;
-        }
-
-        // Accept both YYYY-MM-DD and YYYY-MM-DDTHH:mm:ss.sssZ
-        const match = /^(\\d{4}-\\d{2}-\\d{2})/.exec(raw);
-        if (!match) {
-          if (status) status.textContent = 'Invalid date format. Got: ' + raw;
-          return;
-        }
-
-        billingOverrides[providerId] = match[1] + 'T00:00:00.000Z';
-      }
-
-      if (status) status.textContent = 'saving...';
-      if (saveBtn) saveBtn.disabled = true;
-
-      try {
-        const response = await fetch('/api/settings/billing', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ billingOverrides }),
-        });
-
-        if (!response.ok) {
-          if (status) status.textContent = 'save error';
-          return;
-        }
-
-        if (status) status.textContent = 'saved';
-        window.location.reload();
-      } catch {
-        if (status) status.textContent = 'save error';
-      } finally {
-        if (saveBtn) saveBtn.disabled = false;
-      }
-    }
-
-    showTab('dashboard');
-
-    // ── Refresh progress circle ─────────────────────────────
-    const REFRESH_INTERVAL_MS = 30_000;
-    const CIRCUMFERENCE = ${REFRESH_CIRCUMFERENCE};
-
-    const progressCircle = document.getElementById('refresh-circle');
-    const progressEl = progressCircle?.querySelector('.progress');
-
-    function updateRefreshCircle() {
-      if (!progressCircle || !progressEl) return;
-
-      const ts = parseInt(progressCircle.dataset.updated, 10);
-      if (!ts) {
-        progressEl.style.strokeDashoffset = CIRCUMFERENCE;
-        progressCircle.className = 'refresh-circle normal';
-        return;
-      }
-
-      const elapsed = Date.now() - ts;
-      const fraction = Math.min(1, elapsed / REFRESH_INTERVAL_MS);
-      const offset = CIRCUMFERENCE * (1 - fraction);
-      progressEl.style.strokeDashoffset = offset;
-
-      // Color logic:
-      // - fresh (< 30% of interval): positive (success color)
-      // - mid (30-70%): neutral (accent color)
-      // - stale (> 70%): depends on max usage
-      //   - high usage (> 50%): negative (warning color)
-      //   - low usage: neutral (accent color)
-      const maxUsage = parseFloat(progressCircle.dataset.maxUsage) || 0;
-
-      let colorClass;
-      if (fraction < 0.3) {
-        colorClass = 'fresh';
-      } else if (fraction < 0.7) {
-        colorClass = 'normal';
-      } else {
-        colorClass = maxUsage > 50 ? 'stale' : 'normal';
-      }
-
-      progressCircle.className = 'refresh-circle ' + colorClass;
-    }
-
-    // ── Last-updated time ────────────────────────────────────
-    const MS_MINUTE = 60_000;
-    const MS_HOUR = 3_600_000;
-    const MS_DAY = 86_400_000;
-
-    const timeDisplay = document.getElementById('last-updated-time');
-
-    function updateLastUpdatedTime() {
-      if (!timeDisplay) return;
-
-      const ts = parseInt(timeDisplay.dataset.updated, 10);
-      if (!ts) {
-        timeDisplay.textContent = '';
-        return;
-      }
-
-      const elapsed = Date.now() - ts;
-
-      let text;
-      if (elapsed >= MS_DAY) {
-        const days = Math.floor(elapsed / MS_DAY);
-        text = days + 'd';
-      } else if (elapsed >= MS_HOUR) {
-        const hours = Math.floor(elapsed / MS_HOUR);
-        text = hours + 'h';
-      } else if (elapsed >= MS_MINUTE) {
-        const minutes = Math.floor(elapsed / MS_MINUTE);
-        text = minutes + 'm';
-      } else {
-        text = 'now';
-      }
-
-      timeDisplay.textContent = text;
-    }
-
-    setInterval(updateRefreshCircle, 1000);
-    setInterval(updateLastUpdatedTime, 10_000);
-    updateRefreshCircle();
-    updateLastUpdatedTime();
-
-
-    // ── Refresh ──────────────────────────────────────────────
-    async function refresh() {
-      const status = document.getElementById('status');
-      const btn = document.getElementById('refresh-btn');
-      const spinner = document.getElementById('refresh-spinner');
-      status.textContent = 'updating...';
-      btn.disabled = true;
-      if (spinner) spinner.classList.remove('hidden');
-      try {
-        const r = await fetch('/api/refresh', { method: 'POST' });
-        if (r.ok) window.location.reload();
-        else status.textContent = 'update error';
-      } catch (e) {
-        status.textContent = 'update error';
-      } finally {
-        btn.disabled = false;
-        if (spinner) spinner.classList.add('hidden');
-      }
-    }
+${clientScript({ themeNames: THEME_NAMES, refreshCircumference: REFRESH_CIRCUMFERENCE })}
   </script>
 </body>
 </html>`;

@@ -1,85 +1,67 @@
+/**
+ * Ollama Cloud adapter.
+ *
+ * Reads usage from the JSON API instead of scraping ollama.com/settings:
+ * the site migrated website sign-in to WorkOS (signin.ollama.com) on
+ * 2026-09-06, which invalidated the old session-cookie scraping.
+ */
+import { z } from 'zod';
 import { config } from '../config.js';
+import { fetchAndParse } from '../fetch-utils.js';
+import { createLogger } from '../logger.js';
 import { Provider } from '../provider.js';
 import type { ProviderAdapter } from '../types.js';
 import { UsageWindow } from '../usage-window.js';
 
-const SETTINGS_URL = 'https://ollama.com/settings';
-const FETCH_TIMEOUT_MS = 5_000;
-const SECTION_RANGE = 1500;
+const log = createLogger('adapter:ollama-cloud');
 
-const USER_AGENT =
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36';
+const USAGE_ENDPOINT = 'https://ollama.com/api/usage';
+const PERCENT_MAX = 100;
+
+// Unknown fields (activity, per-model lists, ...) are stripped. `usage` is a
+// 0..1 ratio of the window limit, not a percent.
+export const UsageSchema = z.object({
+  limits: z.object({
+    session: z.object({ usage: z.number().min(0) }),
+    weekly: z.object({ usage: z.number().min(0) }),
+  }),
+});
+
+type Usage = z.infer<typeof UsageSchema>;
 
 export class OllamaCloud implements ProviderAdapter {
   id = 'ollama-cloud';
   name = 'Ollama Cloud';
 
   async fetchUsage(): Promise<Provider> {
-    const sessionCookie = config.ollamaCloudSessionCookie;
+    const apiKey = config.OLLAMA_CLOUD_API_KEY;
 
-    if (!sessionCookie) {
-      return new Provider(this.id, this.name, 'Not configured', []);
+    if (!apiKey) {
+      log.warn('Ollama Cloud: no API key configured');
+
+      return Provider.notConfigured(this.id, this.name);
     }
 
-    const html = await this.fetchHtml(sessionCookie);
-    const windows = this.parseUsageWindows(html);
+    const usage = await fetchAndParse(USAGE_ENDPOINT, apiKey, UsageSchema);
+    const windows = this.parseWindows(usage);
 
     return Provider.fromAdapter(this.id, this.name, 'Cloud', windows, 'Cloud Usage');
   }
 
-  private async fetchHtml(cookie: string): Promise<string> {
-    const payload = {
-      headers: {
-        cookie: `__Secure-session=${cookie}`,
-        'user-agent': USER_AGENT,
-      },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    };
+  /**
+   * Map API limit ratios to dashboard windows ('5h' = session, 'weekly').
+   *
+   * resetAt is null: the usage API exposes no reset timestamps.
+   */
+  parseWindows(usage: Usage): UsageWindow[] {
+    const session = UsageWindow.fromApi('5h', ratioToPercent(usage.limits.session.usage), null);
+    const weekly = UsageWindow.fromApi('weekly', ratioToPercent(usage.limits.weekly.usage), null);
 
-    const response = await fetch(SETTINGS_URL, payload);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    return await response.text();
+    return [session, weekly];
   }
+}
 
-  private parseUsageWindows(html: string): UsageWindow[] {
-    const sessionData = this.parseSection(html, 'Session usage');
-    const weeklyData = this.parseSection(html, 'Weekly usage');
-
-    return [
-      UsageWindow.fromSection('5h', sessionData.percent, sessionData.resetText),
-      UsageWindow.fromSection('weekly', weeklyData.percent, weeklyData.resetText),
-    ];
-  }
-
-  private parseSection(
-    html: string,
-    label: string,
-  ): {
-    percent: number;
-    resetText: string | null;
-  } {
-    const idx = html.indexOf(label);
-
-    if (idx === -1) {
-      throw new Error(`Section not found: ${label}`);
-    }
-
-    const section = html.slice(idx, idx + SECTION_RANGE);
-    const widthMatch = section.match(/width:\s*([\d.]+)%/);
-
-    if (!widthMatch) {
-      throw new Error(`Usage percent not found in section: ${label}`);
-    }
-
-    const resetMatch = section.match(/Resets in\s+([^<]+)/i);
-
-    return {
-      percent: Number.parseFloat(widthMatch[1]),
-      resetText: resetMatch ? resetMatch[1].trim() : null,
-    };
-  }
+/** Convert a 0..1 usage ratio to a percent rounded to one decimal (0.008 → 0.8). */
+function ratioToPercent(ratio: number): number {
+  return Math.round(ratio * PERCENT_MAX * 10) / 10;
 }

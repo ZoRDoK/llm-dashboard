@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --env-file=.env src/index.ts",
-    "build": "tsc && cp -r design dist/design",
+    "tailwind": "tailwindcss -i design/tailwind-input.css -o design/tailwind.css --minify",
+    "build": "npm run tailwind && tsc && rm -rf dist/design && cp -r design dist/design",
     "start": "node --env-file=.env dist/src/index.js",
     "check": "biome check . && knip && cspell lint 'src/**/*.ts' && gitleaks detect && npm run dupes",
     "lint": "biome check .",
@@ -16,13 +17,15 @@
     "secrets:full": "gitleaks detect --source=. --verbose",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:coverage": "vitest run --coverage",
     "dupes": "jscpd src/",
     "prepare": "lefthook install"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
-    "@playwright/test": "^1.59.1",
     "hono": "^4.6.14",
+    "pino": "^10.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -30,11 +33,14 @@
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
     "@cspell/dict-ru_ru": "^2.3.2",
+    "@playwright/test": "^1.59.1",
     "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^4.1.6",
     "cspell": "^10.0.0",
     "jscpd": "^4.0.9",
     "knip": "^6.11.0",
     "lefthook": "^2.1.6",
+    "tailwindcss": "^3.4.19",
     "tsx": "^4.19.2",
     "typescript": "^5.7.0",
     "vitest": "^4.1.6"

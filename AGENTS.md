@@ -1,9 +1,5 @@
 # AGENTS.md — Project Rules & Conventions
 
-## Pi-Crew Delegation
-
-**Enforce strict pi-crew delegation for all code modifications; direct edit/write calls are prohibited for core logic changes.** All substantive code changes must be delegated to a subagent via `crew_spawn` — the assistant must not call `edit` or `write` directly on core logic files.
-
 ## Language
 
 **English only.** All code, comments, variable names, commit messages, documentation,

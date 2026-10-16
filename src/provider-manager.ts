@@ -3,6 +3,7 @@ import { createLogger } from './logger.js';
 import { Provider } from './provider.js';
 import { periodStartIso, QuotaTracker } from './quota-tracker.js';
 import type { ProviderStore } from './store.js';
+import { SuspendTracker } from './suspend.js';
 import type { LogEntry, ProviderAdapter, ProviderMetrics, QuotaPeriod } from './types.js';
 
 const log = createLogger('manager');
@@ -19,6 +20,8 @@ export class ProviderManager {
   private cache: Map<string, Provider> = new Map();
   private lastFetch: Map<string, number> = new Map();
   private slowAdapters: Set<string> = new Set();
+  private readonly inFlight: Map<string, Promise<Provider>> = new Map();
+  private readonly suspend = new SuspendTracker();
   private readonly logStore = new LogStore();
   private readonly quotaTracker: QuotaTracker;
   private metricMap: Map<
@@ -83,6 +86,10 @@ export class ProviderManager {
 
   /** Build metrics records for all registered adapters. */
   getMetrics(): ProviderMetrics[] {
+    // Sample here too: the watchdog ticks on its own schedule and must see
+    // suspend intervals even when no refresh ran across them.
+    this.suspend.sample();
+
     const archiveSet = this.store.getArchiveSettings();
     const results: ProviderMetrics[] = [];
 
@@ -94,12 +101,24 @@ export class ProviderManager {
         name: adapter.name,
         archived: archiveSet.has(adapter.id),
         configured: rec?.configured ?? true,
-        lastSuccessAt: rec?.lastSuccessAt ?? null,
-        lastAttemptAt: rec?.lastAttemptAt ?? null,
+        // Effective stamps shift the raw ones forward by the time the system
+        // spent suspended since then, so wall-clock lag (watchdog threshold,
+        // panel "Last success" age) measures awake time, not lid-closed time.
+        lastSuccessAt: this.awakeStamp(rec?.lastSuccessAt ?? null),
+        lastAttemptAt: this.awakeStamp(rec?.lastAttemptAt ?? null),
       });
     }
 
     return results;
+  }
+
+  /** Raw wall stamp shifted forward by the suspend time accumulated after it. */
+  private awakeStamp(ts: number | null): number | null {
+    if (ts == null) {
+      return null;
+    }
+
+    return ts + this.suspend.suspendedSince(ts);
   }
 
   /** Build the quota-burn history records for all tracked providers. */
@@ -183,6 +202,8 @@ export class ProviderManager {
   }
 
   async refresh(): Promise<Provider[]> {
+    this.suspend.sample();
+
     const archiveSet = this.store.getArchiveSettings();
 
     // Every tick, intentionally: idempotent — clearTimeout on a null timer is a no-op.
@@ -205,16 +226,23 @@ export class ProviderManager {
     const activeAdapters = this.adapters.filter(
       (a) => !(this.slowAdapters.has(a.id) || archiveSet.has(a.id)),
     );
-    const results = await Promise.allSettled(activeAdapters.map((a) => this.fetchOne(a)));
+    // Overdue slow adapters ride the fast tick: after a system suspend (or a
+    // dead slow timer) their last attempt is wall-clock old, and waiting for
+    // the next slow tick would keep them stale for up to 10 more minutes.
+    const dueSlowAdapters = this.adapters.filter(
+      (a) => this.slowAdapters.has(a.id) && this.isSlowDue(a.id, archiveSet),
+    );
+    const fetchBatch = [...activeAdapters, ...dueSlowAdapters];
+    const results = await Promise.allSettled(fetchBatch.map((a) => this.fetchOne(a)));
 
     const providers: Provider[] = [];
-    const activeSet = new Set(activeAdapters);
+    const activeSet = new Set(fetchBatch);
     let okCount = 0;
     let failCount = 0;
 
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
-      const adapter = activeAdapters[i];
+      const adapter = fetchBatch[i];
 
       if (result.status === 'fulfilled') {
         providers.push(result.value);
@@ -347,15 +375,19 @@ export class ProviderManager {
   }
 
   /**
-   * Refresh slow (rate-limited) adapters sequentially, one per tick slot.
+   * Refresh due slow (rate-limited) adapters sequentially, one per tick slot.
    *
-   * A failure goes through the same recovery as a fast-tick failure — log-store
-   * error entry, lastAttemptAt metric, stale-marked card — so a persistently
-   * failing slow provider stays visible to the dashboard and the watchdog.
-   * Without this, a slow adapter that kept rejecting served its last-good card
-   * with no error for hours (the watchdog reported "stale, last error: none").
+   * Adapters attempted recently (the fast tick picks up overdue ones) keep
+   * their slow spacing; isSlowDue also skips archived adapters. A failure goes
+   * through the same recovery as a fast-tick failure — log-store error entry,
+   * lastAttemptAt metric, stale-marked card — so a persistently failing slow
+   * provider stays visible to the dashboard and the watchdog. Without this, a
+   * slow adapter that kept rejecting served its last-good card with no error
+   * for hours (the watchdog reported "stale, last error: none").
    */
   private async refreshSlow(): Promise<void> {
+    this.suspend.sample();
+
     const archiveSet = this.store.getArchiveSettings();
 
     this.stopArchivedKeepalives(archiveSet);
@@ -365,7 +397,7 @@ export class ProviderManager {
         continue;
       }
 
-      if (archiveSet.has(adapter.id)) {
+      if (!this.isSlowDue(adapter.id, archiveSet)) {
         continue;
       }
 
@@ -377,6 +409,27 @@ export class ProviderManager {
     }
   }
 
+  /**
+   * A slow adapter is due once a full slow interval has passed since its last
+   * attempt. Wall clock, deliberately: after a resume from suspend the data is
+   * wall-clock old and should refresh at the next fast tick, not after another
+   * slow interval. Never-attempted adapters are due too; concurrent fetches
+   * for one adapter are coalesced in fetchOne.
+   */
+  private isSlowDue(id: string, archiveSet: ReadonlySet<string>): boolean {
+    if (archiveSet.has(id)) {
+      return false;
+    }
+
+    const lastAttemptAt = this.metricMap.get(id)?.lastAttemptAt;
+
+    if (lastAttemptAt == null) {
+      return true;
+    }
+
+    return Date.now() - lastAttemptAt >= SLOW_TICK_INTERVAL_MS;
+  }
+
   /** Archived providers must not keep background session timers running. */
   private stopArchivedKeepalives(archiveSet: ReadonlySet<string>): void {
     for (const adapter of this.adapters) {
@@ -386,7 +439,29 @@ export class ProviderManager {
     }
   }
 
-  private async fetchOne(adapter: ProviderAdapter): Promise<Provider> {
+  /**
+   * Fetch one adapter, coalescing concurrent calls for the same id into a
+   * single request: the fast tick, the slow tick and POST /api/refresh can all
+   * race for the same adapter, and duplicate polls are exactly what the slow
+   * schedule exists to prevent.
+   */
+  private fetchOne(adapter: ProviderAdapter): Promise<Provider> {
+    const running = this.inFlight.get(adapter.id);
+
+    if (running) {
+      return running;
+    }
+
+    const attempt = this.runFetch(adapter).finally(() => {
+      this.inFlight.delete(adapter.id);
+    });
+
+    this.inFlight.set(adapter.id, attempt);
+
+    return attempt;
+  }
+
+  private async runFetch(adapter: ProviderAdapter): Promise<Provider> {
     const result = await adapter.fetchUsage();
 
     const now = Date.now();

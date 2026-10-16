@@ -36,11 +36,6 @@ const CDP_WS_TIMEOUT_MS = 5_000;
 // A navigation has to wait out every redirect hop of the console SSO chain,
 // so its budget is deliberately larger than a plain CDP command's.
 const NAVIGATION_TIMEOUT_MS = 15_000;
-// An in-page fetch (Runtime.evaluate with awaitPromise) waits out a full
-// Cloudflare challenge plus the API round trip, so it gets a navigation-sized
-// budget rather than the plain command timeout.
-const EVALUATE_TIMEOUT_MS = 15_000;
-
 const PAGE_TARGET_TYPE = 'page';
 const CDP_COMMAND_ID = 1;
 
@@ -48,7 +43,6 @@ const PAGE_ENABLE_COMMAND = 'Page.enable';
 const PAGE_NAVIGATE_COMMAND = 'Page.navigate';
 const PAGE_LOAD_EVENT = 'Page.loadEventFired';
 const SET_COOKIE_COMMAND = 'Network.setCookie';
-const RUNTIME_EVALUATE_COMMAND = 'Runtime.evaluate';
 const COOKIE_SEPARATOR = ';';
 const COOKIE_ASSIGN = '=';
 
@@ -109,15 +103,6 @@ const NavigateResultSchema = z.object({ errorText: z.string().optional() });
 
 /** Chrome answers Network.setCookie with `{ success }` (omitted on old builds). */
 const SetCookieResultSchema = z.object({ success: z.boolean().optional() });
-
-/**
- * Chrome answers Runtime.evaluate with `{ result: { type, value } }` and, when
- * the evaluated expression threw, with `exceptionDetails`.
- */
-const EvaluateResultSchema = z.object({
-  result: z.object({ type: z.string(), value: z.unknown().optional() }).optional(),
-  exceptionDetails: z.unknown().optional(),
-});
 
 /** Handle one scripted CDP conversation; `done` settles it exactly once. */
 interface CdpSession {
@@ -190,37 +175,6 @@ export async function navigateViaBrowser(url: string): Promise<{ ok: boolean; er
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-}
-
-/**
- * Evaluate a JavaScript expression in the first page target and return its
- * value. This is what lets an adapter call an API that refuses plain HTTP:
- * a fetch running inside a page the user's Chrome already has open carries
- * that page's origin, cookies and Cloudflare clearance, and so escapes the
- * TLS-fingerprint challenge that rejects Node's own HTTP client. `awaitPromise`
- * awaits an in-page promise and `returnByValue` ships the resolved value back;
- * an expression that threw in the page is rejected, not returned.
- */
-export async function evaluateInPage(expression: string): Promise<unknown> {
-  const cdpUrl = config.CHROME_CDP_URL ?? DEFAULT_CDP_URL;
-
-  const alive = await checkCdpEndpoint(cdpUrl);
-
-  if (!alive) {
-    throw new Error(`Chrome not found at ${cdpUrl}`);
-  }
-
-  const wsUrl = await firstPageTargetWsUrl(cdpUrl);
-  const params = { expression, awaitPromise: true, returnByValue: true };
-
-  const raw = await sendCdpCommand(wsUrl, RUNTIME_EVALUATE_COMMAND, params, EVALUATE_TIMEOUT_MS);
-  const evaluated = EvaluateResultSchema.parse(raw);
-
-  if (evaluated.exceptionDetails) {
-    throw new Error(`${RUNTIME_EVALUATE_COMMAND} threw in the page`);
-  }
-
-  return evaluated.result?.value;
 }
 
 /**

@@ -21,6 +21,9 @@ const SLOW_TICK_INTERVAL_MS = 600_000;
 const TIME_T0 = 1_000;
 const TIME_T1 = 5_000;
 const USED_PERCENT = 50;
+// A 20h wall-clock jump with one awake minute, as after a lid-close suspend.
+const SUSPEND_WALL_JUMP_MS = 72_000_000;
+const MONO_AWAKE_MS = 60_000;
 
 // ── Quota tracking constants ──────────────────────────────────
 const QUOTA_USED_PCT = 30;
@@ -122,19 +125,30 @@ describe('ProviderManager', () => {
       expect(providers[0].models).toEqual([]);
     });
 
-    it('markSlow excludes an adapter from the active refresh set', async () => {
+    it('markSlow excludes a recently-attempted adapter from the fast refresh', async () => {
       const fetchSlow = vi.fn(() => Promise.resolve(makeProvider('slow')));
       const fetchFast = vi.fn(() => Promise.resolve(makeProvider('fast')));
-      const { store } = makeFakeStore();
+      const { store, metricsMap } = makeFakeStore();
       const manager = new ProviderManager(store);
       manager.register(makeAdapter('slow', 'Slow', fetchSlow));
       manager.register(makeAdapter('fast', 'Fast', fetchFast));
       manager.markSlow('slow');
 
-      await manager.refresh();
+      // Slow adapter attempted a minute ago: inside the slow interval.
+      const now = Date.now();
+      metricsMap.set('slow', {
+        lastSuccessAt: now - TICK_INTERVAL_MS,
+        lastAttemptAt: now - TICK_INTERVAL_MS,
+        configured: true,
+      });
+
+      // start() loads the store metrics the due-check reads, then refreshes.
+      manager.start();
+      await flush();
 
       expect(fetchFast).toHaveBeenCalledTimes(1);
       expect(fetchSlow).not.toHaveBeenCalled();
+      manager.stop();
     });
   });
 
@@ -517,6 +531,86 @@ describe('ProviderManager', () => {
       await vi.advanceTimersByTimeAsync(SLOW_TICK_INTERVAL_MS);
       expect(fetchSlow).toHaveBeenCalledTimes(2);
       manager.stop();
+    });
+  });
+
+  // ── slow adapters in the fast refresh ────────────────────
+
+  describe('slow adapters in the fast refresh', () => {
+    it('fetches an overdue slow adapter alongside the fast batch', async () => {
+      const fetchSlow = vi.fn(() =>
+        Promise.resolve(makeProvider('slow', 'plan', [makeModelUsage()])),
+      );
+      const { store, metricsMap } = makeFakeStore();
+      const manager = new ProviderManager(store);
+      manager.register(makeAdapter('slow', 'Slow', fetchSlow));
+      manager.markSlow('slow');
+
+      // Last attempt one slow interval + one tick ago: overdue, e.g. after a
+      // resume from suspend or a dead slow timer.
+      const now = Date.now();
+      metricsMap.set('slow', {
+        lastSuccessAt: now - SLOW_TICK_INTERVAL_MS - TICK_INTERVAL_MS,
+        lastAttemptAt: now - SLOW_TICK_INTERVAL_MS - TICK_INTERVAL_MS,
+        configured: true,
+      });
+
+      manager.start();
+      await flush();
+
+      expect(fetchSlow).toHaveBeenCalledTimes(1);
+      const providers = manager.getCachedProviders();
+      expect(providers.map((p) => p.id)).toContain('slow');
+      manager.stop();
+    });
+
+    it('coalesces concurrent refreshes into one fetch per adapter', async () => {
+      let resolveFetch: ((provider: Provider) => void) | undefined;
+      const fetchA = vi.fn(
+        () =>
+          new Promise<Provider>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      );
+      const { store } = makeFakeStore();
+      const manager = new ProviderManager(store);
+      manager.register(makeAdapter('a', 'A', fetchA));
+
+      const first = manager.refresh();
+      const second = manager.refresh();
+      resolveFetch?.(makeProvider('a'));
+      await Promise.all([first, second]);
+
+      expect(fetchA).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── suspend-aware metrics ─────────────────────────────────
+
+  describe('suspend-aware metrics', () => {
+    it('discounts suspended time from the staleness stamps', async () => {
+      vi.setSystemTime(TIME_T0);
+      const mono = vi.spyOn(performance, 'now');
+      mono.mockReturnValue(0);
+      const { store, metricsMap } = makeFakeStore();
+      const manager = new ProviderManager(store);
+      manager.register(
+        makeAdapter('a', 'A', () => Promise.resolve(makeProvider('a', 'plan', [makeModelUsage()]))),
+      );
+
+      await manager.refresh();
+      expect(metricsMap.get('a')?.lastSuccessAt).toBe(TIME_T0);
+
+      // Wall clock jumps a long suspend forward; the monotonic clock barely moves.
+      vi.setSystemTime(TIME_T0 + SUSPEND_WALL_JUMP_MS);
+      mono.mockReturnValue(MONO_AWAKE_MS);
+
+      const metrics = manager.getMetrics();
+
+      // Effective stamp = raw stamp + suspend time, so awake lag stays small.
+      expect(metrics[0].lastSuccessAt).toBe(TIME_T0 + SUSPEND_WALL_JUMP_MS - MONO_AWAKE_MS);
+      // The stored raw metric keeps the real wall-clock success time.
+      expect(metricsMap.get('a')?.lastSuccessAt).toBe(TIME_T0);
     });
   });
 

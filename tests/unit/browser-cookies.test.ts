@@ -17,7 +17,6 @@ vi.mock('../../src/config.js', () => ({
 }));
 
 import {
-  evaluateInPage,
   navigateViaBrowser,
   parseCookiePairs,
   refreshCookiesViaBrowser,
@@ -538,52 +537,5 @@ describe('refreshCookiesViaBrowser', () => {
     expect(result.error).toContain('Chrome not found');
     // The Playwright path stalled for tens of seconds; the raw client must stay bounded.
     expect(elapsedMs).toBeLessThan(FAIL_FAST_BUDGET_MS);
-  });
-});
-
-describe('evaluateInPage', () => {
-  afterEach(() => {
-    cdpUrlRef.url = '';
-    vi.unstubAllGlobals();
-  });
-
-  it('awaits the in-page expression and returns its by-value result', async () => {
-    const cdp = await startFakeCdp([
-      { type: 'page', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/devtools/page/abc' },
-    ]);
-    cdpUrlRef.url = cdp.url;
-    vi.stubGlobal('WebSocket', FakeCdpSocket);
-    FakeCdpSocket.response = { result: { type: 'string', value: '{"json":{}}' } };
-
-    const value = await evaluateInPage('fetch("/grant").then(r=>r.text())');
-
-    expect(value).toBe('{"json":{}}');
-    expect(FakeCdpSocket.sentCommand).toContain('"method":"Runtime.evaluate"');
-    expect(FakeCdpSocket.sentCommand).toContain('"awaitPromise":true');
-    expect(FakeCdpSocket.sentCommand).toContain('"returnByValue":true');
-
-    await cdp.close();
-  });
-
-  it('rejects when the expression threw inside the page', async () => {
-    const cdp = await startFakeCdp([
-      { type: 'page', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/devtools/page/abc' },
-    ]);
-    cdpUrlRef.url = cdp.url;
-    vi.stubGlobal('WebSocket', FakeCdpSocket);
-    FakeCdpSocket.response = {
-      result: { type: 'object', subtype: 'error' },
-      exceptionDetails: { text: 'TypeError: fetch is not a function' },
-    };
-
-    await expect(evaluateInPage('nope()')).rejects.toThrow('Runtime.evaluate threw in the page');
-
-    await cdp.close();
-  });
-
-  it('fails fast when the CDP endpoint is unreachable', async () => {
-    cdpUrlRef.url = 'http://127.0.0.1:9';
-
-    await expect(evaluateInPage('1')).rejects.toThrow('Chrome not found');
   });
 });

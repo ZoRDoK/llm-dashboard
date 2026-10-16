@@ -57,8 +57,6 @@ const EnvSchema = z.object({
   FIRECRAWL_API_KEY: z.string().optional(),
   SYNTHETIC_API_KEY: z.string().optional(),
   COMMANDCODE_SESSION_TOKEN: z.string().optional(),
-  R4_SESSION_TOKEN: z.string().optional(),
-  R4_CF_CLEARANCE: z.string().optional(),
   ALIBABA_QWEN_COOKIE: z.string().optional(),
   ALIBABA_QWEN_KEEPALIVE_HOURS: z.coerce
     .number()

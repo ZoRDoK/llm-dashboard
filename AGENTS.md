@@ -1,91 +1,55 @@
-# AGENTS.md — Project Rules & Conventions
+# ai-creds
 
-## Language
+**English only** for all repository text, including code, UI, docs and commits.
+Apply the `style` skill when changing code. Biome is the sole linter/formatter;
+`biome.json` defines formatting and lint rules rather than this file duplicating them.
 
-**English only.** All code, comments, variable names, commit messages, documentation,
-UI strings, and any other text in this repository must be in English.
+## Source map
 
-## Mandatory Skill
+Node.js/TypeScript ESM dashboard using Hono, Zod, Tailwind and Pino.
 
-**Always apply the `style` skill** when writing or modifying code in this project.
-The style skill enforces variable placement, function structure, logging patterns,
-and maintainability rules that Biome doesn't cover.
+- `src/index.ts`: server startup/routes, bound to loopback; `src/config.ts`: env validation
+  and defaults (`PORT` defaults to 3001).
+- `src/provider-manager.ts`: polling, caching and refresh coordination;
+  `src/adapters/registry.ts`: active adapters and slow-poll registration, not historical cache rows.
+- `src/types.ts`: shared interfaces; `src/provider.ts`, `src/usage-window.ts`: domain objects.
+- `src/store.ts`: built-in `node:sqlite`; `data/cache.sqlite` also holds settings and history.
+- `src/html.ts`, `src/html/`, `design/`: dashboard, client script, Tailwind and themes.
+- `src/pi-usage.ts`: session-usage analytics; `src/watchdog.ts`: scheduled repair-agent launches.
+- `tests/`: Vitest unit/rendering tests and separate Playwright-backed browser E2E tests.
 
-## Code Quality
+## Commands
 
-This project uses **Biome** as the sole linter and formatter. No ESLint, no Prettier.
-
-Run before committing:
 ```bash
-npm run check        # full suite: biome + knip + cspell + gitleaks + jscpd
-npm run lint         # biome check only
-npm run format       # biome format
+npm run dev            # tsx watch, loads .env
+npm run build          # Tailwind + tsc + design assets into dist/
+npm start              # compiled server, loads .env
+npm test               # unit/rendering tests; excludes browser E2E
+npm run test:e2e        # browser E2E against an existing server
+npm run test:coverage   # unit/rendering coverage
+npm run lint           # Biome only
+npm run check          # Biome + Knip + CSpell + Gitleaks + jscpd; NOT tests
 ```
 
-### Biome rules (key highlights)
+`package.json` is authoritative. E2E uses `E2E_BASE_URL` (default `http://localhost:3002`),
+not the default app port. Use an authorized isolated server, not production.
+For docs-only changes, use focused document checks and normal hooks, not app tests or startup.
+Starting `src/index.ts` polls providers, writes SQLite/auth caches and may launch repair agents.
 
-- **No `any`** — `noExplicitAny: error`
-- **No `==`** — `noDoubleEquals: error` (use `===`)
-- **No `forEach`** — `noForEach: error` (use `for..of`)
-- **No `else` after early return** — `noUselessElse: error`
-- **No parameter mutation** — `noParameterAssign: error` (property assignments also denied)
-- **No non-null assertions** — `noNonNullAssertion: error`
-- **Prefer arrow functions** — `useArrowFunction: error`
-- **Prefer optional chaining** — `useOptionalChain: error`
-- **Prefer template literals** — `useTemplate: error`
-- **Prefer `const`** — `useConst: error`
-- **Use block statements** — single-line `if` bodies must be wrapped in `{}`
-- **Use `Number.isFinite`/`Number.isNaN`** — no global `isFinite`/`isNaN`
-- **Use `Number` namespace** — `Number.parseInt`, `Number.POSITIVE_INFINITY`, etc.
-- **No `console.log`** — use `console.info/warn/error` instead
-- **No delete operator** — `noDelete: warn`
-- **No accumulating spread** — `noAccumulatingSpread: error`
-- **Cognitive complexity** — warn when > 12
+## Boundaries
 
-## Git Hooks (Lefthook)
-
-- **pre-commit** — biome format + lint staged files, gitleaks quick scan, cspell
-- **commit-msg** — conventional commits enforced (`feat:`, `fix:`, `chore:`, etc.)
-- **pre-push** — knip (unused code check) + gitleaks full history scan
-
-## Additional Checks
-
-| Tool      | Purpose                              | Command              |
-|-----------|--------------------------------------|----------------------|
-| Knip      | Unused files, deps, exports          | `npm run knip`       |
-| CSpell    | Spellcheck (English + Russian dict)  | `npm run spellcheck` |
-| Gitleaks  | Secret/credential detection          | `npm run secrets`    |
-| jscpd     | Copy-paste detection                 | `npm run dupes`      |
-
-## Project Structure
-
-```
-src/
-├── index.ts              # Hono server entry point
-├── service.ts            # Provider orchestration & caching
-├── store.ts              # SQLite cache (sync via better-sqlite3)
-├── html.ts               # Dashboard HTML rendering
-├── adapters/
-│   ├── types.ts          # Shared interfaces (UsageWindow, Provider, etc.)
-│   ├── codex.ts          # OpenAI Codex adapter
-│   ├── minimax.ts        # MiniMax Token Plan adapter
-│   ├── ollama-cloud.ts   # Ollama Cloud adapter
-│   └── opencode-go.ts    # OpenCode Go adapter
-└── design/themes/        # 10 CSS theme files
-```
-
-## Conventions
-
-- **Imports**: `node:` protocol for built-ins (`import { readFileSync } from 'node:fs'`)
-- **Types**: `import type` for type-only imports
-- **Modules**: ESM (`"type": "module"`)
-- **Runtime**: Node.js, TypeScript compiled via `tsx` (dev) / `tsc` (build)
-- **Indent**: 2 spaces
-- **Quotes**: single quotes
-- **Semicolons**: always
-- **Trailing commas**: always
-- **Line width**: 100
-- **Naming**: prefer short, 1-word names for internal helpers (e.g., `fetchHtml` not `fetchWorkspaceHtml`)
-- **No external directory access** — code must NOT read files from `~/.pi`,
-  `/home`, or any path outside the project root. All credentials and config
-  come from environment variables only.
+- Runtime credentials use env, existing OAuth `auth.json` flows in `src/adapters/*-auth.ts`,
+  and CDP/local `data/` caches. OAuth refresh may persist tokens to its existing external paths.
+  `PI_SESSIONS_DIR` analytics reads sessions only and stores aggregates in local SQLite.
+  Do not add external paths or credential sources without explicit approval.
+- These runtime flows do not authorize agent access: inspecting or editing live `.env`, `data/`,
+  credential stores, browser cookies or raw session logs requires an explicit operator request.
+  Never disclose, log or commit secrets. Use `src/logger.ts` for application logging.
+- Preserve live SQLite/WAL, billing/archive settings, quota history and watchdog state.
+  Keep per-provider in-flight coalescing, slow-poll/archive rules and stale timestamps intact;
+  never restore retired adapters just because cached rows remain.
+- Live provider/CDP probes, paid calls, service starts/restarts, deployment and publication
+  require explicit authorization; documentation work is not authorization.
+- Preserve unrelated staged/untracked work; commit only the task's files with normal Lefthook
+  hooks and Conventional Commits. Never push without a user request.
+- Delegate only when useful or requested; keep writer ownership explicit and avoid overlap.

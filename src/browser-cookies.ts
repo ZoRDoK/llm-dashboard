@@ -59,6 +59,8 @@ interface RefreshCookiesOptions {
   cookieName?: string;
   /** Match `cookieName` exactly instead of as a prefix. Default: false. */
   exactName?: boolean;
+  /** CDP endpoint of a specific browser profile. Default: CHROME_CDP_URL. */
+  cdpUrl?: string;
 }
 
 interface BrowserCookieResult {
@@ -154,9 +156,10 @@ export async function refreshCookiesViaBrowser(
  * ticket with no user action). The caller then re-extracts the refreshed
  * cookies via refreshCookiesViaBrowser.
  */
-export async function navigateViaBrowser(url: string): Promise<{ ok: boolean; error?: string }> {
-  const cdpUrl = config.CHROME_CDP_URL ?? DEFAULT_CDP_URL;
-
+export async function navigateViaBrowser(
+  url: string,
+  cdpUrl: string = config.CHROME_CDP_URL ?? DEFAULT_CDP_URL,
+): Promise<{ ok: boolean; error?: string }> {
   const alive = await checkCdpEndpoint(cdpUrl);
 
   if (!alive) {
@@ -255,7 +258,7 @@ export async function restoreCookiesViaBrowser(
  * without navigating or opening tabs (non-intrusive).
  */
 async function tryCdp(opts: RefreshCookiesOptions): Promise<BrowserCookieResult> {
-  const cdpUrl = config.CHROME_CDP_URL ?? DEFAULT_CDP_URL;
+  const cdpUrl = opts.cdpUrl ?? config.CHROME_CDP_URL ?? DEFAULT_CDP_URL;
 
   const alive = await checkCdpEndpoint(cdpUrl);
 
@@ -517,5 +520,184 @@ async function checkCdpEndpoint(cdpUrl: string): Promise<boolean> {
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+// ── Browser-level CDP (window activation) ───────────────────
+
+const BROWSER_SESSION_TIMEOUT_MS = 8_000;
+
+/** Chrome answers /json/version with the browser-level DevTools socket. */
+const CdpVersionSchema = z.object({ webSocketDebuggerUrl: z.string() });
+
+const CdpTargetsListSchema = z.object({
+  targetInfos: z.array(z.object({ targetId: z.string(), type: z.string() })),
+});
+
+type CdpSend = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
+
+/**
+ * Run a scripted conversation against the browser-level DevTools socket.
+ * Unlike page sockets, browser sessions answer Target.* commands with
+ * request/response ids instead of events.
+ */
+function withBrowserSession<T>(wsUrl: string, run: (send: CdpSend) => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let ws: WebSocket;
+    const pending = new Map<
+      number,
+      { resolve: (value: unknown) => void; reject: (err: Error) => void }
+    >();
+    let nextId = CDP_COMMAND_ID;
+
+    const finish = (err: Error | null, value?: T): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timer);
+
+      for (const waiter of pending.values()) {
+        waiter.reject(err ?? new Error('CDP browser session closed'));
+      }
+
+      pending.clear();
+
+      try {
+        ws.close();
+      } catch {
+        // already closing
+      }
+
+      if (err) {
+        reject(err);
+      } else {
+        resolve(value as T);
+      }
+    };
+
+    const timer = setTimeout(
+      () => finish(new Error('CDP browser session timed out')),
+      BROWSER_SESSION_TIMEOUT_MS,
+    );
+
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch (err) {
+      clearTimeout(timer);
+      reject(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+
+    const send: CdpSend = (method, params = {}) => {
+      const id = nextId;
+      nextId += 1;
+
+      return new Promise((res, rej) => {
+        pending.set(id, { resolve: res, reject: rej });
+        ws.send(JSON.stringify({ id, method, params }));
+      });
+    };
+
+    ws.addEventListener('message', (event: MessageEvent) => {
+      let message: { id?: number; result?: unknown; error?: { message: string } };
+
+      try {
+        message = JSON.parse(String(event.data)) as typeof message;
+      } catch {
+        finish(new Error('CDP browser session: malformed message'));
+        return;
+      }
+
+      if (message.id == null) {
+        return;
+      }
+
+      const waiter = pending.get(message.id);
+
+      if (!waiter) {
+        return;
+      }
+
+      pending.delete(message.id);
+
+      if (message.error) {
+        waiter.reject(new Error(message.error.message));
+      } else {
+        waiter.resolve(message.result);
+      }
+    });
+
+    ws.addEventListener('error', () => finish(new Error(`CDP websocket failed: ${wsUrl}`)));
+    ws.addEventListener('close', () => finish(new Error('CDP browser session closed')));
+
+    ws.addEventListener('open', () => {
+      run(send).then(
+        (value) => finish(null, value),
+        (err: unknown) => finish(err instanceof Error ? err : new Error(String(err))),
+      );
+    });
+  });
+}
+
+/** Resolve the browser-level DevTools socket for a CDP endpoint. */
+async function browserSocketUrl(cdpUrl: string): Promise<string> {
+  const response = await fetch(`${cdpUrl}/json/version`, {
+    signal: AbortSignal.timeout(CDP_HTTP_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    throw new Error(`CDP version endpoint HTTP ${response.status}`);
+  }
+
+  const info = CdpVersionSchema.parse(await response.json());
+
+  return proxiedWsUrl(info.webSocketDebuggerUrl, cdpUrl);
+}
+
+/**
+ * Navigate the profile's page to `url` and raise its window.
+ *
+ * The dedicated window is already there when Chrome was started by the
+ * service or the operator; Target.activateTarget is what brings it to the
+ * front instead of leaving a silently navigated background tab.
+ */
+export async function openProfileWindow(
+  cdpUrl: string,
+  url: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const wsUrl = await browserSocketUrl(cdpUrl);
+    const page = await withBrowserSession(wsUrl, async (send) => {
+      const targets = CdpTargetsListSchema.parse(await send('Target.getTargets'));
+
+      return targets.targetInfos.find((target) => target.type === PAGE_TARGET_TYPE) ?? null;
+    });
+
+    if (page) {
+      const navigation = await navigateViaBrowser(url, cdpUrl);
+
+      if (!navigation.ok) {
+        return navigation;
+      }
+
+      await withBrowserSession(wsUrl, (send) =>
+        send('Target.activateTarget', { targetId: page.targetId }),
+      );
+
+      return { ok: true };
+    }
+
+    await withBrowserSession(wsUrl, async (send) => {
+      const created = (await send('Target.createTarget', { url })) as { targetId: string };
+
+      await send('Target.activateTarget', { targetId: created.targetId });
+    });
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

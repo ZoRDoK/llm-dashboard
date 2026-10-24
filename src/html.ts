@@ -9,7 +9,6 @@ import { renderUrgentPanel } from './html/urgent-panel.js';
 import {
   errorCard,
   escapeHtml,
-  groupMiniMaxModels,
   modelCard,
   toDateInputValue,
   updatedLabelSpan,
@@ -85,17 +84,9 @@ function renderProviderCard(p: Provider, billingEnd: string | undefined): string
     return errorCard(p);
   }
 
-  const isMiniMax = p.id === 'minimax';
-
-  let modelsHtml: string;
-
-  if (isMiniMax) {
-    const { main } = groupMiniMaxModels(p.models);
-
-    modelsHtml = main.map((m) => modelCard(m)).join('');
-  } else {
-    modelsHtml = p.models.map((m) => modelCard(m)).join('');
-  }
+  const visibleModels =
+    p.id === 'minimax' ? p.models.filter((m) => !m.modelName.startsWith('coding-plan')) : p.models;
+  const modelsHtml = visibleModels.map(modelCard).join('');
 
   const billingTag = renderBillingTag(billingEnd);
 

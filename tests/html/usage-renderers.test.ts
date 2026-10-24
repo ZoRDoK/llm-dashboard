@@ -5,7 +5,6 @@ import {
   escapeHtml,
   formatNumber,
   formatTimeUntil,
-  groupMiniMaxModels,
   modelCard,
   toDateInputValue,
 } from '../../src/html/usage-renderers.js';
@@ -100,31 +99,6 @@ describe('toDateInputValue', () => {
 
   it('возвращает YYYY-MM-DD для корректной ISO-даты', () => {
     expect(toDateInputValue('2026-03-15T10:00:00.000Z')).toBe('2026-03-15');
-  });
-});
-
-// ── groupMiniMaxModels ──────────────────────────────────────
-
-describe('groupMiniMaxModels', () => {
-  it('отфильтровывает модели с префиксом coding-plan', () => {
-    const coding = {
-      modelName: 'coding-plan-x',
-      windows: [UsageWindow.fromSection('monthly', PCT_HALF, '5h')],
-    };
-    const chat = { modelName: 'chat', windows: [UsageWindow.fromSection('daily', PCT_HALF, '5h')] };
-
-    const { main } = groupMiniMaxModels([coding, chat]);
-
-    expect(main).toHaveLength(1);
-    expect(main[0].modelName).toBe('chat');
-  });
-
-  it('возвращает пустой extra для совместимости', () => {
-    const chat = { modelName: 'chat', windows: [UsageWindow.fromSection('daily', PCT_HALF, '5h')] };
-
-    const { extra } = groupMiniMaxModels([chat]);
-
-    expect(extra).toHaveLength(0);
   });
 });
 

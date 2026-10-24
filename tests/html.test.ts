@@ -427,12 +427,22 @@ describe('renderDashboard — computeMaxUsage', () => {
 // ── Provider card branches (renderProviderCard) ─────────────
 
 describe('renderDashboard — provider card branches', () => {
-  it('рендерит карточку ошибки для провайдера с error', () => {
-    const provider = new Provider('test', 'Test', 'pro', [], 'something broke');
-    const html = renderDashboard([provider], Date.now(), {});
+  it('renders MiniMax errors without model windows or billing tags', () => {
+    const minimax = new Provider(
+      'minimax',
+      'MiniMax',
+      'pro',
+      [{ modelName: 'chat', windows: [UsageWindow.fromApi('error-model-window', PCT_HALF, null)] }],
+      '<request failed>',
+      NOW,
+    );
+    const html = renderDashboard([minimax], NOW, { minimax: '2026-03-15T00:00:00.000Z' });
 
     expect(html).toContain('border-theme-danger');
-    expect(html).toContain('something broke');
+    expect(html).toContain('&lt;request failed&gt;');
+    expect(html).toContain(`data-provider-updated="${NOW}"`);
+    expect(html).not.toContain('error-model-window');
+    expect(html).not.toContain('Billing: ');
   });
 
   it('MiniMax-карточка не содержит удалённый блок "Show all models"', () => {
@@ -445,17 +455,61 @@ describe('renderDashboard — provider card branches', () => {
     expect(html).toContain('MiniMax');
   });
 
-  it('MiniMax-ветка отфильтровывает модели coding-plan', () => {
-    const coding = {
-      modelName: 'coding-plan-x',
-      windows: [UsageWindow.fromSection('monthly', PCT_HALF, '5h')],
-    };
-    const chat = { modelName: 'chat', windows: [UsageWindow.fromSection('daily', PCT_HALF, '5h')] };
-    const minimax = new Provider('minimax', 'MiniMax', 'pro', [coding, chat]);
-    const html = renderDashboard([minimax], Date.now(), {});
+  it.each([
+    { id: 'minimax', isArchived: false, expected: ['chat-window', 'case-window', 'suffix-window'] },
+    { id: 'minimax', isArchived: true, expected: ['chat-window', 'case-window', 'suffix-window'] },
+    {
+      id: 'test',
+      isArchived: false,
+      expected: ['chat-window', 'hidden-exact', 'case-window', 'hidden-prefix', 'suffix-window'],
+    },
+    {
+      id: 'MiniMax',
+      isArchived: false,
+      expected: ['chat-window', 'hidden-exact', 'case-window', 'hidden-prefix', 'suffix-window'],
+    },
+  ])('filters only MiniMax coding-plan prefixes in order ($id, archived: $isArchived)', ({
+    id,
+    isArchived,
+    expected,
+  }) => {
+    const models = [
+      ['chat', 'chat-window'],
+      ['coding-plan', 'hidden-exact'],
+      ['Coding-plan-x', 'case-window'],
+      ['coding-plan-x', 'hidden-prefix'],
+      ['legacy-coding-plan', 'suffix-window'],
+    ].map(([modelName, label]) => ({
+      modelName,
+      windows: [UsageWindow.fromApi(label, PCT_HALF, null)],
+    }));
+    const originalModels = [...models];
+    const provider = new Provider(id, 'MiniMax', 'pro', models);
+    const archiveSet = new Set(isArchived ? [id] : []);
+    const html = renderDashboard([provider], NOW, {}, archiveSet);
+    const labels = Array.from(
+      html.matchAll(/uppercase tracking-wider">([^<]*)<\/span>/g),
+      (match) => match[1],
+    );
 
-    expect(html).toContain('daily');
-    expect(html).not.toContain('monthly');
+    expect(labels).toEqual(expected);
+    expect(provider.models).toEqual(originalModels);
+    expect(html.includes('Archive (1)')).toBe(isArchived);
+  });
+
+  it.each([
+    { scenario: 'empty', names: [] },
+    { scenario: 'all-filtered', names: ['coding-plan', 'coding-plan-x'] },
+  ])('renders an empty MiniMax card for $scenario models', ({ names }) => {
+    const models = names.map((modelName) => ({
+      modelName,
+      windows: [UsageWindow.fromApi('hidden-window', PCT_HALF, null)],
+    }));
+    const minimax = new Provider('minimax', 'MiniMax', 'pro', models);
+    const html = renderDashboard([minimax], NOW, {});
+
+    expect(html).toMatch(/<h2[^>]*>\s*MiniMax\s*<\/h2>\s*<div>\s*<\/div>/);
+    expect(html).not.toContain('hidden-window');
   });
 });
 

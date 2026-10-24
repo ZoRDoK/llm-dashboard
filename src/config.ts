@@ -32,10 +32,23 @@ const EnvSchema = z.object({
   MIMO_API_URL: z.string().optional(),
   MINIMAX_API_KEY: z.string().optional(),
   OLLAMA_CLOUD_API_KEY: z.string().optional(),
+  OPENCODE_GO_API_KEY: z.string().optional(),
+  OPENCODE_GO_2_API_KEY: z.string().optional(),
   OPENCODE_GO_SESSION_COOKIE: z.string().optional(),
   OPENCODE_GO_WORKSPACE_ID: z.string().optional(),
   OPENCODE_GO_2_SESSION_COOKIE: z.string().optional(),
   OPENCODE_GO_2_WORKSPACE_ID: z.string().optional(),
+  // Dedicated host Chrome profiles (one process per account, separate
+  // --user-data-dir). Kept apart from shared automation browsers; env cookies
+  // stay as fallback when a profile is not logged in yet.
+  OPENCODE_GO_CDP_URL: z.string().default('http://127.0.0.1:9341'),
+  OPENCODE_GO_2_CDP_URL: z.string().default('http://127.0.0.1:9342'),
+  OPENCODE_GO_PROFILE_DIR: z
+    .string()
+    .default(`${process.env.HOME ?? ''}/.local/share/ai-creds/chrome/go`),
+  OPENCODE_GO_2_PROFILE_DIR: z
+    .string()
+    .default(`${process.env.HOME ?? ''}/.local/share/ai-creds/chrome/go2`),
   OPENROUTER_API_KEY: z.string().optional(),
   OPENAI_CODEX_ACCESS_TOKEN: z.string().optional(),
   CLAUDE_ACCESS_TOKEN: z.string().optional(),

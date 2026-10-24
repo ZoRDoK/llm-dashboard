@@ -3,9 +3,10 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { registerAdapters } from './adapters/registry.js';
-
+import { openProfileWindow } from './browser-cookies.js';
 import { config } from './config.js';
 import { renderHistoryPanel } from './html/history-panel.js';
+import { renderLoginPage } from './html/login-page.js';
 import { renderLogsPanel } from './html/logs-panel.js';
 import { renderMetricsPanel } from './html/metrics-panel.js';
 import { type PChartsRange, renderPChartsPage } from './html/p-charts.js';
@@ -13,6 +14,7 @@ import { renderWatchdogPanel } from './html/watchdog-panel.js';
 import { renderDashboard } from './html.js';
 import { createLogger } from './logger.js';
 import { PiUsageIndex } from './pi-usage.js';
+import { ensureProfileChrome } from './profile-chrome.js';
 import { ProviderManager } from './provider-manager.js';
 import { ProviderStore } from './store.js';
 import { Watchdog } from './watchdog.js';
@@ -144,6 +146,56 @@ app.post('/api/settings/billing', async (c) => {
 const ARCHIVE_BODY_SCHEMA = z.object({
   providerId: z.string(),
   archived: z.boolean(),
+});
+
+const HTTP_NOT_FOUND = 404;
+const HTTP_FORBIDDEN = 403;
+
+/** OpenCode Go accounts: manual sign-in happens in each account's dedicated browser profile. */
+const OPENCODE_LOGIN_PROFILES: Record<
+  string,
+  { cdpUrl: string; loginUrl: string; profileDir: string; name: string }
+> = {
+  'opencode-go': {
+    cdpUrl: config.OPENCODE_GO_CDP_URL,
+    loginUrl: 'https://opencode.ai/console',
+    profileDir: config.OPENCODE_GO_PROFILE_DIR,
+    name: 'OpenCode Go',
+  },
+  'opencode-go-2': {
+    cdpUrl: config.OPENCODE_GO_2_CDP_URL,
+    loginUrl: 'https://opencode.ai/console',
+    profileDir: config.OPENCODE_GO_2_PROFILE_DIR,
+    name: 'OpenCode Go 2',
+  },
+};
+
+app.get('/api/login/:id', async (c) => {
+  // The route spawns Chrome and navigates the console profile, so reject
+  // cross-site browser requests (CSRF via <img>/<iframe> from a foreign page).
+  if (c.req.header('Sec-Fetch-Site') === 'cross-site') {
+    return c.json({ ok: false, error: 'Cross-site request rejected' }, HTTP_FORBIDDEN);
+  }
+
+  const id = c.req.param('id');
+  const profile = OPENCODE_LOGIN_PROFILES[id];
+
+  if (!profile) {
+    return c.json({ ok: false, error: 'Unknown provider' }, HTTP_NOT_FOUND);
+  }
+
+  const launch = await ensureProfileChrome(profile.cdpUrl, profile.profileDir, profile.loginUrl);
+  const opened = launch.ok ? await openProfileWindow(profile.cdpUrl, profile.loginUrl) : launch;
+
+  return c.html(
+    renderLoginPage({
+      providerId: id,
+      providerName: profile.name,
+      ok: opened.ok,
+      error: opened.ok ? null : (opened.error ?? 'Unknown error'),
+      command: `google-chrome --user-data-dir=${profile.profileDir} --remote-debugging-port=${new URL(profile.cdpUrl).port} --no-first-run ${profile.loginUrl}`,
+    }),
+  );
 });
 
 app.get('/api/settings/archive', (c) => {

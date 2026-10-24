@@ -43,52 +43,48 @@ const URGENT_PROVIDERS: Record<string, UrgentConfig> = {
 
 // ── Checkers ────────────────────────────────────────────────
 
-function checkUrgentWindow(
+function qualifyWindow(
   providerName: string,
   config: UrgentConfig,
-  windows: UsageWindow[],
+  window_: UsageWindow,
 ): QualifiedItem | null {
-  for (const window_ of windows) {
-    if (window_.label !== config.window || !window_.resetAt) {
-      continue;
-    }
-
-    const resetMs = new Date(window_.resetAt).getTime();
-    const now = Date.now();
-    const hoursUntilReset = (resetMs - now) / MS_PER_HOUR;
-
-    if (!Number.isFinite(hoursUntilReset) || hoursUntilReset <= 0) {
-      continue;
-    }
-
-    const usedPercent = window_.usedPercent ?? null;
-
-    const remainingPercent =
-      window_.remainingPercent ?? (usedPercent == null ? PERCENT_MAX : PERCENT_MAX - usedPercent);
-
-    const urgency = (remainingPercent * config.priority) / (hoursUntilReset + URGENCY_OFFSET);
-
-    return {
-      providerName,
-      hoursUntilReset,
-      urgency,
-      usedPercent,
-      thresholdHours: config.thresholdHours,
-      windowLabel: window_.label,
-    };
+  if (!window_.resetAt) {
+    return null;
   }
 
-  return null;
+  const hoursUntilReset = (new Date(window_.resetAt).getTime() - Date.now()) / MS_PER_HOUR;
+
+  if (!Number.isFinite(hoursUntilReset) || hoursUntilReset <= 0) {
+    return null;
+  }
+
+  const usedPercent = window_.usedPercent ?? null;
+  const remainingPercent =
+    window_.remainingPercent ?? (usedPercent == null ? PERCENT_MAX : PERCENT_MAX - usedPercent);
+
+  return {
+    providerName,
+    hoursUntilReset,
+    urgency: (remainingPercent * config.priority) / (hoursUntilReset + URGENCY_OFFSET),
+    usedPercent,
+    thresholdHours: config.thresholdHours,
+    windowLabel: window_.label,
+  };
 }
 
 function checkUrgentProvider(provider: Provider, config: UrgentConfig): QualifiedItem | null {
-  for (const model of provider.models) {
-    if (model.modelName !== config.model) {
+  const windows = provider.models.flatMap((model) =>
+    model.modelName === config.model ? model.windows : [],
+  );
+
+  for (const window_ of windows) {
+    if (window_.label !== config.window) {
       continue;
     }
 
-    const item = checkUrgentWindow(provider.name, config, model.windows);
+    const item = qualifyWindow(provider.name, config, window_);
 
+    // Spent filtering happens after selection, so later preferred windows cannot replace this one.
     if (item) {
       return item;
     }
@@ -128,80 +124,34 @@ const renderModePanel = (items: QualifiedItem[], dotClass: string, title: string
 };
 
 function findNearestWindow(provider: Provider, config: UrgentConfig): QualifiedItem | null {
-  let nearest: QualifiedItem | null = null;
-
-  for (const model of provider.models) {
-    if (model.modelName !== config.model) {
-      continue;
-    }
-
-    const candidate = nearestInWindows(provider.name, config, model.windows);
-
-    if (candidate && (!nearest || candidate.hoursUntilReset < nearest.hoursUntilReset)) {
-      nearest = candidate;
-    }
-  }
-
-  return nearest;
-}
-
-function nearestInWindows(
-  providerName: string,
-  config: UrgentConfig,
-  windows: UsageWindow[],
-): QualifiedItem | null {
+  const windows = provider.models.flatMap((model) =>
+    model.modelName === config.model ? model.windows : [],
+  );
   let nearest: QualifiedItem | null = null;
 
   for (const window_ of windows) {
-    const candidate = tryDesirableWindow(providerName, config, window_);
+    const candidate = qualifyWindow(provider.name, config, window_);
 
-    if (candidate && (!nearest || candidate.hoursUntilReset < nearest.hoursUntilReset)) {
+    if (
+      !candidate ||
+      (candidate.usedPercent !== null && candidate.usedPercent >= SPENT_THRESHOLD)
+    ) {
+      continue;
+    }
+
+    if (!nearest || candidate.hoursUntilReset < nearest.hoursUntilReset) {
       nearest = candidate;
     }
   }
 
   return nearest;
-}
-
-function tryDesirableWindow(
-  providerName: string,
-  config: UrgentConfig,
-  window_: UsageWindow,
-): QualifiedItem | null {
-  if (!window_.resetAt) {
-    return null;
-  }
-
-  const hoursUntilReset = (new Date(window_.resetAt).getTime() - Date.now()) / MS_PER_HOUR;
-
-  if (!Number.isFinite(hoursUntilReset) || hoursUntilReset <= 0) {
-    return null;
-  }
-
-  const usedPercent = window_.usedPercent ?? null;
-
-  if (usedPercent !== null && usedPercent >= SPENT_THRESHOLD) {
-    return null;
-  }
-
-  const remainingPercent =
-    window_.remainingPercent ?? (usedPercent == null ? PERCENT_MAX : PERCENT_MAX - usedPercent);
-
-  return {
-    providerName,
-    hoursUntilReset,
-    urgency: (remainingPercent * config.priority) / (hoursUntilReset + URGENCY_OFFSET),
-    usedPercent,
-    thresholdHours: config.thresholdHours,
-    windowLabel: window_.label,
-  };
 }
 
 function collectDesirableCandidates(
   providers: Provider[],
-  excludedIds: QualifiedItem[],
+  viable: QualifiedItem[],
 ): QualifiedItem[] {
-  const excluded = new Set(excludedIds.map((item) => item.providerName));
+  const excluded = new Set(viable.map((item) => item.providerName));
   const results: QualifiedItem[] = [];
 
   for (const provider of providers) {

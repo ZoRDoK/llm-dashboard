@@ -300,27 +300,6 @@ function windowRow(window: UsageWindow): string {
     </div>`;
 }
 
-// ── Model grouping for MiniMax ──────────────────────────────
-
-interface ModelGroup {
-  main: ModelUsage[];
-  extra: ModelUsage[];
-}
-
-export function groupMiniMaxModels(models: ModelUsage[]): ModelGroup {
-  const main: ModelUsage[] = [];
-
-  for (const m of models) {
-    if (m.modelName.startsWith('coding-plan')) {
-      continue;
-    }
-
-    main.push(m);
-  }
-
-  return { main, extra: [] };
-}
-
 // ── Card renderers ──────────────────────────────────────────
 
 export function modelCard(m: ModelUsage): string {

@@ -355,6 +355,67 @@ describe('quota-tracker', () => {
       expect(latest?.firstSampledAt).toBe(firstSampledAt);
     });
 
+    it.each([
+      '2026-07-18T00:00:00.000Z',
+      '2026-07-18T23:30:00.000Z',
+      '2026-07-20T00:00:00.000Z',
+    ])('keeps the stored period key when reset drifts within one day to %s', (resetAt) => {
+      const provider = makeTrackedProvider('zai', 'Zai', 'weekly', USED_PCT, RESET_AT);
+      const tracker = new QuotaTracker(store);
+
+      tracker.record(provider);
+      vi.setSystemTime(BASE_NOW + OVER_ONE_HOUR_MS);
+      const updated = makeTrackedProvider('zai', 'Zai', 'weekly', UPDATED_USED_PCT, resetAt);
+      tracker.record(updated);
+
+      expect(store.getQuotaPeriods()).toEqual([
+        {
+          providerId: 'zai',
+          periodKey: PERIOD_KEY,
+          resetAt: RESET_AT,
+          usedPercent: UPDATED_USED_PCT,
+          remainingPercent: UPDATED_REMAINING_PCT,
+          firstSampledAt: BASE_NOW,
+          lastSampledAt: BASE_NOW + OVER_ONE_HOUR_MS,
+          sampleCount: 2,
+        },
+      ]);
+    });
+
+    it.each([
+      {
+        cadence: 'hourly',
+        firstSampleAt: RESET_AT_TS - SEVEN_HOURS_MS,
+        driftedReset: '2026-07-18T23:00:00.000Z',
+        sampleCount: 1,
+      },
+      {
+        cadence: 'near-reset',
+        firstSampleAt: RESET_AT_TS - THREE_HOURS_MS,
+        driftedReset: '2026-07-19T07:00:00.000Z',
+        sampleCount: 2,
+      },
+    ])('uses the stored reset time for $cadence sampling despite reset drift', ({
+      firstSampleAt,
+      driftedReset,
+      sampleCount,
+    }) => {
+      const provider = makeTrackedProvider('zai', 'Zai', 'weekly', USED_PCT, RESET_AT);
+      const tracker = new QuotaTracker(store);
+
+      vi.setSystemTime(firstSampleAt);
+      tracker.record(provider);
+      vi.setSystemTime(firstSampleAt + DENSE_SAMPLE_GAP_MS);
+      const updated = makeTrackedProvider('zai', 'Zai', 'weekly', UPDATED_USED_PCT, driftedReset);
+      tracker.record(updated);
+
+      expect(store.getLatestQuotaPeriod('zai')).toMatchObject({
+        periodKey: PERIOD_KEY,
+        resetAt: RESET_AT,
+        sampleCount,
+      });
+    });
+
     it('creates a new period row when reset_at is more than a day from the latest', () => {
       const first = makeTrackedProvider('zai', 'Zai', 'weekly', USED_PCT, RESET_AT);
       const tracker = new QuotaTracker(store);
@@ -511,7 +572,7 @@ describe('quota-tracker', () => {
       expect(latest?.firstSampledAt).toBe(firstSampledAt);
     });
 
-    it('creates a new row when the week boundary is crossed', () => {
+    it('creates a new row at the week boundary even inside the sampling interval', () => {
       const provider = makeTrackedProvider(
         'codex',
         'OpenAI Codex',
@@ -521,10 +582,11 @@ describe('quota-tracker', () => {
       );
       const tracker = new QuotaTracker(store);
 
+      vi.setSystemTime(WEEK_END_TS - MS_PER_MINUTE);
       tracker.record(provider);
 
-      // Advance past the week end (next Monday 00:00 UTC).
-      vi.setSystemTime(WEEK_END_TS + OVER_ONE_HOUR_MS);
+      // Only one minute later: a new week must bypass the five-minute throttle.
+      vi.setSystemTime(WEEK_END_TS);
       tracker.record(provider);
 
       const periods = store.getQuotaPeriods();
@@ -533,6 +595,8 @@ describe('quota-tracker', () => {
       // The second row is keyed by the new Monday.
       const latest = store.getLatestQuotaPeriod('codex');
       expect(latest?.periodKey).toBe('2026-07-27');
+      expect(latest?.firstSampledAt).toBe(WEEK_END_TS);
+      expect(latest?.sampleCount).toBe(1);
     });
   });
 });

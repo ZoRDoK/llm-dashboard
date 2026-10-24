@@ -133,7 +133,8 @@
     "unconfigured",
     "unstub",
     "upserting",
-    "vllm"
+    "vllm",
+    "DBUS"
   ],
   "ignorePaths": [
     "node_modules",

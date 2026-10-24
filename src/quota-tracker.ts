@@ -191,27 +191,14 @@ export class QuotaTracker {
   /** Reset-anchored path: stable reset timestamps keyed by reset date (±1d tolerance). */
   private recordReset(sample: QuotaSample, now: number): void {
     const latest = this.store.getLatestQuotaPeriod(sample.providerId);
+    const isSamePeriod = latest != null && withinTolerance(latest.resetAt, sample.resetAt);
 
-    if (latest && withinTolerance(latest.resetAt, sample.resetAt)) {
-      // Same period — throttle adaptively: hourly, tightening near reset.
-      if (now - latest.lastSampledAt < minSampleIntervalMs(latest.resetAt, now)) {
-        return;
-      }
-
-      this.store.upsertQuotaSample(
-        sample.providerId,
-        latest.periodKey,
-        sample.resetAt,
-        sample.usedPercent,
-        sample.remainingPercent,
-        now,
-      );
-
+    // Throttle existing periods using the stored reset; new periods always get a first sample.
+    if (isSamePeriod && now - latest.lastSampledAt < minSampleIntervalMs(latest.resetAt, now)) {
       return;
     }
 
-    // New period — always record the first sample.
-    const periodKey = periodKeyFromResetAt(sample.resetAt);
+    const periodKey = isSamePeriod ? latest.periodKey : periodKeyFromResetAt(sample.resetAt);
 
     this.store.upsertQuotaSample(
       sample.providerId,
@@ -238,25 +225,14 @@ export class QuotaTracker {
     const resetAt = weekEndIso(current);
     const latest = this.store.getLatestQuotaPeriod(sample.providerId);
 
-    if (latest && latest.periodKey === periodKey) {
-      // Same week — throttle adaptively: hourly, tightening near the week end.
-      if (now - latest.lastSampledAt < minSampleIntervalMs(resetAt, now)) {
-        return;
-      }
-
-      this.store.upsertQuotaSample(
-        sample.providerId,
-        periodKey,
-        resetAt,
-        sample.usedPercent,
-        sample.remainingPercent,
-        now,
-      );
-
+    // Throttle existing weeks; new weeks always get a first sample.
+    if (
+      latest?.periodKey === periodKey &&
+      now - latest.lastSampledAt < minSampleIntervalMs(resetAt, now)
+    ) {
       return;
     }
 
-    // New week — always record the first sample.
     this.store.upsertQuotaSample(
       sample.providerId,
       periodKey,
